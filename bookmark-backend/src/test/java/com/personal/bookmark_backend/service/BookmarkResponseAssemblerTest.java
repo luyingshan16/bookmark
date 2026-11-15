@@ -17,13 +17,11 @@ import static org.mockito.Mockito.when;
 
 class BookmarkResponseAssemblerTest {
     @Test
-    void groupsTagQueriesByFolderAndPreservesBookmarkAndTagOrder() {
+    void loadsTagsAcrossFoldersTogetherAndPreservesBookmarkAndTagOrder() {
         TagService tags = mock(TagService.class);
         var assembler = new BookmarkResponseAssembler(tags, new BookmarkMapperImpl());
-        when(tags.getBookmarkTagNames(1L, 10L, List.of(3L, 1L)))
-                .thenReturn(Map.of(3L, List.of("旅行", "文章")));
-        when(tags.getBookmarkTagNames(1L, 20L, List.of(2L)))
-                .thenReturn(Map.of(2L, List.of("工作")));
+        when(tags.getBookmarkTagNames(1L, List.of(3L, 2L, 1L)))
+                .thenReturn(Map.of(3L, List.of("旅行", "文章"), 2L, List.of("工作")));
 
         var result = assembler.toResponses(
                 1L, List.of(
@@ -36,8 +34,7 @@ class BookmarkResponseAssemblerTest {
                 List.of(List.of("旅行", "文章"), List.of("工作"), List.of()),
                 result.stream().map(BookmarkResponse::tags).toList()
         );
-        verify(tags).getBookmarkTagNames(1L, 10L, List.of(3L, 1L));
-        verify(tags).getBookmarkTagNames(1L, 20L, List.of(2L));
+        verify(tags).getBookmarkTagNames(1L, List.of(3L, 2L, 1L));
         verifyNoMoreInteractions(tags);
     }
 

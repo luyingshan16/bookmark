@@ -1,7 +1,7 @@
 package com.personal.bookmark_app.ui.screen.home
 
-import androidx.compose.ui.unit.Dp
 import android.net.Uri
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -23,10 +23,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.paging.LoadState
-import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -45,15 +41,19 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,12 +65,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.personal.bookmark_app.data.remote.dto.response.user.UserProfileResponse
 import com.personal.bookmark_app.ui.components.LinkGoogleDialog
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
 import com.personal.bookmark_app.ui.components.requestGoogleIdToken
 import com.personal.bookmark_app.ui.model.FolderDisplayMode
 import com.personal.bookmark_app.ui.model.FolderUiModel
@@ -102,9 +114,46 @@ fun HomeScreen(
     val folders = homeViewModel.folders.collectAsLazyPagingItems()
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
 
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        homeViewModel.refreshLatestBatchJob()
+        homeViewModel.refreshFolderJob()
+    }
+
+    val snackbarHost = remember { SnackbarHostState() }
+    val batchJobResult = uiState.batchJobResult
+    LaunchedEffect(batchJobResult) {
+        if (batchJobResult != null) {
+            val status = batchJobResult.status
+            val action = if (status.deleting) "刪除" else "移動"
+            snackbarHost.showSnackbar(
+                message = "${action}完成：成功 ${status.succeeded} 筆，失敗 ${status.failed} 筆",
+                duration = SnackbarDuration.Short
+            )
+            homeViewModel.consumeBatchJobResult(batchJobResult)
+        }
+    }
+    val folderJobResult = uiState.folderJobResult
+    LaunchedEffect(folderJobResult) {
+        if (folderJobResult != null) {
+            val status = folderJobResult.status
+            val action = if (status.deleting) "刪除" else "移動"
+            snackbarHost.showSnackbar(
+                message = if (status.succeeded) "收藏夾${action}完成"
+                    else status.errorMessage ?: "收藏夾${action}失敗，請稍後再試",
+                duration = SnackbarDuration.Short
+            )
+            homeViewModel.consumeFolderJobResult(folderJobResult)
+        }
+    }
+
     val isRefreshingFolders = folders.loadState.refresh is LoadState.Loading
+    ReportDrawnWhen {
+        folders.itemCount > 0 || folders.loadState.refresh is LoadState.Error ||
+            folders.loadState.append.endOfPaginationReached
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHost) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             HomeTopAppBar(
@@ -125,6 +174,29 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            if (uiState.batchJobStatusUnavailable) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "暫時無法取得批量操作進度",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = homeViewModel::refreshLatestBatchJob) { Text("重試") }
+                }
+            }
+            uiState.folderJob?.takeUnless { it.finished }?.let { job ->
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(if (job.deleting) "正在刪除收藏夾..." else "正在移動收藏夾裡的所有資料...",
+                        style = MaterialTheme.typography.bodyMedium)
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
             DailyPicksCard(
                 onClick = onDailyPicksClick
             )
@@ -159,6 +231,16 @@ fun HomeScreen(
         }
     }
 
+    var hiddenBatchJobId by rememberSaveable { mutableStateOf<String?>(null) }
+    uiState.latestBatchJob?.takeIf { !it.finished && it.id != hiddenBatchJobId }?.let { move ->
+        BookmarkBatchIndicator(
+            title = if (move.deleting) "刪除中…" else "移動中…",
+            processed = move.processed,
+            total = move.total,
+            onBackground = { hiddenBatchJobId = move.id }
+        )
+    }
+
     // 收藏夾管理 Bottom Sheet
     if (showFolderManagement) {
         FolderManagementSheet(
@@ -171,13 +253,11 @@ fun HomeScreen(
             onRename = { folderId, newTitle ->
                 homeViewModel.renameFolder(folderId, newTitle)
             },
-            // 直接刪除資料夾及其收藏
-            onDelete = { folderId ->
-                homeViewModel.deleteFolder(folderId)
-            },
-            // 將收藏移至「未分類」後刪除原資料夾
-            onMoveToUnclassified = { folderId ->
-                homeViewModel.moveFolderBookmarksToUnclassified(folderId)
+            onDelete = homeViewModel::deleteFolder,
+            onLoadDestinations = homeViewModel::getMoveDestinations,
+            onSubmitJob = { folderId, request ->
+                homeViewModel.submitFolderJob(folderId, request)
+                showFolderManagement = false
             },
             // 新增資料夾
             onAdd = homeViewModel::createFolder
@@ -473,6 +553,10 @@ private fun FolderSection(
     onEditClick: () -> Unit,
     onFolderClick: (FolderUiModel) -> Unit
 ) {
+    val folderListModifier = Modifier
+        .fillMaxWidth()
+        .semantics { testTagsAsResourceId = true }
+        .then(if (folders.itemCount > 0) Modifier.testTag("home_folder_list") else Modifier)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -585,9 +669,7 @@ private fun FolderSection(
             FolderDisplayMode.GRID -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                    modifier = folderListModifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(
@@ -613,9 +695,7 @@ private fun FolderSection(
 
             FolderDisplayMode.LIST -> {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                    modifier = folderListModifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(
                         bottom = 20.dp

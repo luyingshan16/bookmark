@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 
@@ -20,26 +19,23 @@ public class DailyPickController {
     private final BookmarkResponseAssembler bookmarkResponses;
 
     @GetMapping
-    @Transactional
-    public DailyPickSelectionResponse get(
-            Authentication authentication
-    ) {
-        return response((Long) authentication.getPrincipal(), false);
+    public DailyPickSelectionResponse get(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        var result = selections.readCurrent(userId)
+                .orElseGet(() -> selections.select(userId, false, null));
+        return response(userId, result);
     }
 
     @PostMapping("/refresh")
-    @Transactional
-    public DailyPickSelectionResponse refresh(
-            Authentication authentication
-    ) {
-        return response((Long) authentication.getPrincipal(), true);
+    public DailyPickSelectionResponse refresh(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        return response(userId, selections.select(userId, true, null));
     }
 
     private DailyPickSelectionResponse response(
             Long userId,
-            boolean refresh
+            DailyPickSelectionService.Selection result
     ) {
-        var result = selections.select(userId, refresh, null);
         var items = new ArrayList<DailyPickSelectionResponse.Item>();
         for (var response : bookmarkResponses.toResponses(userId, result.picks())) {
             items.add(

@@ -41,6 +41,12 @@ cd bookmark-backend
 
 使用 Android Studio 開啟 `bookmark-app`，設定 Android SDK 後即可嘗試 Sync／Build。模擬器或實體手機 API 位址會在 Android 串接階段說明。
 
+### 收藏夾與收藏的背景任務
+
+首頁的收藏夾搬移與刪除任務使用 `folder_jobs`，可用 [create_folder_jobs.sql](bookmark-backend/src/main/resources/db/manual/create_folder_jobs.sql) 建立。
+
+從舊版 `bookmark_move_jobs`／`bookmark_move_items` 升級時，先備份資料庫並停止所有後端程序，再執行一次 [migrate_bookmark_batch_jobs.sql](bookmark-backend/src/main/resources/db/manual/migrate_bookmark_batch_jobs.sql)，完成後啟動新版後端。遷移會保留任務、進度及失敗項目，並把兩張表改名為 `bookmark_batch_jobs`／`bookmark_batch_items`。使用舊表名的後端版本無法在遷移後處理批量任務。
+
 ## 設定與機密
 
 `.env.example` 列出預計使用的環境變數名稱與不可直接使用的佔位值。請在本機自行設定真實的資料庫帳密及 JWT 密鑰；不要提交 `.env`、Token、密碼或簽署金鑰。

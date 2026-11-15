@@ -11,7 +11,10 @@ import kotlinx.coroutines.CancellationException
 private const val PAGE_SIZE = 20
 
 // 三個列表都以頁碼查 API。畫面滑到接近底部時，Paging 會呼叫 load。
-class PageLoader<T : Any>(loadPage: suspend (page: Int, size: Int) -> PageResponse<T>) {
+class PageLoader<T : Any>(
+    private val countPages: Boolean = true,
+    loadPage: suspend (page: Int, size: Int) -> PageResponse<T>
+) {
     private val sources = InvalidatingPagingSourceFactory {
         object : PagingSource<Int, T>() {
             override suspend fun load(params: LoadParams<Int>): LoadResult<Int, T> {
@@ -19,13 +22,13 @@ class PageLoader<T : Any>(loadPage: suspend (page: Int, size: Int) -> PageRespon
                     val page = params.key ?: 0
                     var response = loadPage(page, PAGE_SIZE)
                     // 刪除資料後，原本所在頁可能已經不存在。
-                    if (params is LoadParams.Refresh && page > 0 && page >= response.totalPages) {
+                    if (countPages && params is LoadParams.Refresh && page > 0 && page >= response.totalPages) {
                         response = loadPage((response.totalPages - 1).coerceAtLeast(0), PAGE_SIZE)
                     }
                     LoadResult.Page(
                         data = response.content,
                         prevKey = (response.page - 1).takeIf { it >= 0 },
-                        nextKey = (response.page + 1).takeIf { it < response.totalPages }
+                        nextKey = (response.page + 1).takeIf { response.hasNext ?: (it < response.totalPages) }
                     )
                 } catch (error: CancellationException) {
                     throw error
@@ -35,6 +38,7 @@ class PageLoader<T : Any>(loadPage: suspend (page: Int, size: Int) -> PageRespon
             }
 
             override fun getRefreshKey(state: PagingState<Int, T>): Int? {
+                if (!countPages) return null
                 val position = state.anchorPosition ?: return null
                 val page = state.closestPageToPosition(position) ?: return null
                 return page.prevKey?.plus(1) ?: page.nextKey?.minus(1)

@@ -91,6 +91,9 @@ fun SearchBookmarkScreen(
                 bookmarkSources = bookmarkSources,
                 sourceBookmarkCounts = uiState.sourceCounts,
                 totalCount = uiState.totalCount,
+                countsLoading = uiState.countsLoading,
+                countsFailed = uiState.countsFailed,
+                onRetryCounts = viewModel::loadSourceCounts,
                 selectedSource = uiState.selectedSource,
                 onSourceSelected = viewModel::onSourceSelected
             )
@@ -195,8 +198,11 @@ private fun SearchBookmarkTopBar(
 @Composable
 private fun SourceFilterSection(
     bookmarkSources: List<BookmarkSourceResponse>,
-    sourceBookmarkCounts: Map<String, Long>,
-    totalCount: Long,
+    sourceBookmarkCounts: Map<String, Long>?,
+    totalCount: Long?,
+    countsLoading: Boolean,
+    countsFailed: Boolean,
+    onRetryCounts: () -> Unit,
     selectedSource: String?,
     onSourceSelected: (String?) -> Unit,
 ) {
@@ -216,7 +222,7 @@ private fun SourceFilterSection(
             },
             label = {
                 Text(
-                    text = "全部平台（$totalCount）",
+                    text = totalCount?.let { "全部平台（$it）" } ?: "全部平台",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
@@ -228,22 +234,29 @@ private fun SourceFilterSection(
         )
 
         val visibleSources =
-            (bookmarkSources.map { it.code } + sourceBookmarkCounts.keys + listOfNotNull(
+            (bookmarkSources.map { it.code } + sourceBookmarkCounts.orEmpty().keys + listOfNotNull(
                 selectedSource
             ))
                 .distinctBy { it.uppercase() }
                 .map { code ->
-                    val count = sourceBookmarkCounts.entries
+                    val count = sourceBookmarkCounts.orEmpty().entries
                         .filter { it.key.equals(code, ignoreCase = true) }.sumOf { it.value }
                     code to count
                 }
                 .filter { (code, count) ->
-                    count > 0L || code.equals(
+                    sourceBookmarkCounts == null || count > 0L || code.equals(
                         selectedSource,
                         ignoreCase = true
                     )
                 }
                 .sortedByDescending { (_, count) -> count }
+        if (countsLoading && sourceBookmarkCounts == null) {
+            Text("統計中…", style = MaterialTheme.typography.bodySmall)
+        } else if (countsFailed) {
+            Text("重試統計", Modifier.clickable(onClick = onRetryCounts),
+                style = MaterialTheme.typography.bodySmall)
+        }
+
         visibleSources.forEach { (code, count) ->
             val selected = code.equals(selectedSource, ignoreCase = true)
             FilterChip(
@@ -253,7 +266,8 @@ private fun SourceFilterSection(
                 },
                 label = {
                     Text(
-                        text = "${bookmarkSources.displayNameFor(code)}（$count）",
+                        text = if (sourceBookmarkCounts == null) bookmarkSources.displayNameFor(code)
+                        else "${bookmarkSources.displayNameFor(code)}（$count）",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )

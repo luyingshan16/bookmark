@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -24,6 +25,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +63,11 @@ public class BookmarkService {
     @Transactional(readOnly = true)
     public Page<Bookmark> searchBookmarks(Long userId, String query, String source, Pageable pageable) {
         return bookmarkRepository.searchForUser(userId, query, source, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Slice<Bookmark> searchBookmarkSlice(Long userId, String query, String source, Pageable pageable) {
+        return bookmarkRepository.searchSliceForUser(userId, query, source, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -220,7 +229,7 @@ public class BookmarkService {
             List<String> tagNames
     ) {
 
-        // 確認收藏屬於目前使用者
+        dailyPickSelectionService.lockUser(userId);
         Bookmark bookmark = findUserBookmark(userId, bookmarkId);
 
         validateBookmark(url, source);
@@ -328,7 +337,7 @@ public class BookmarkService {
             Long targetFolderId
     ) {
 
-        // 查詢原本的收藏
+        dailyPickSelectionService.lockUser(userId);
         Bookmark bookmark = findUserBookmark(userId, bookmarkId);
 
         // 確認目標收藏夾屬於目前使用者
@@ -358,6 +367,59 @@ public class BookmarkService {
         return bookmark;
     }
 
+
+    @Transactional
+    public List<Long> deleteBookmarkBatch(Long userId, List<Long> ids) {
+        return deleteBookmarkBatch(userId, ids, null);
+    }
+
+    @Transactional
+    public List<Long> deleteBookmarkBatch(Long userId, List<Long> ids, Long sourceFolderId) {
+        dailyPickSelectionService.lockUser(userId);
+        var owned = bookmarkRepository.findLocationsForDelete(userId, ids, sourceFolderId);
+        if (owned.isEmpty()) return List.of();
+
+        List<Long> ownedIds = owned.stream().map(BookmarkRepository.BookmarkLocation::getId).toList();
+        dailyPickSelectionService.removeBookmarks(userId, ownedIds);
+        var byFolder = owned.stream().collect(Collectors.groupingBy(BookmarkRepository.BookmarkLocation::getFolderId,
+                Collectors.mapping(BookmarkRepository.BookmarkLocation::getId, Collectors.toList())));
+        for (var entry : byFolder.entrySet()) {
+            Long folderId = entry.getKey();
+            var bookmarkIds = entry.getValue();
+            var tagIds = bookmarkTagRepository.findTagIdsForBookmarks(userId, folderId, bookmarkIds);
+            bookmarkTagRepository.deleteByBookmarkIds(userId, folderId, bookmarkIds);
+            bookmarkRepository.deleteBatch(userId, folderId, bookmarkIds);
+            if (!tagIds.isEmpty()) bookmarkTagRepository.deleteUnusedTags(userId, folderId, tagIds);
+            folderCoverUpdater.update(findUserFolder(userId, folderId));
+        }
+        return ownedIds;
+    }
+
+    @Transactional
+    public List<Long> moveBookmarkBatch(Long userId, List<Long> ids, Long targetFolderId) {
+        return moveBookmarkBatch(userId, ids, targetFolderId, null);
+    }
+
+    @Transactional
+    public List<Long> moveBookmarkBatch(Long userId, List<Long> ids, Long targetFolderId, Long sourceFolderId) {
+        dailyPickSelectionService.lockUser(userId);
+        findUserFolder(userId, targetFolderId);
+        var owned = sourceFolderId == null
+                ? bookmarkRepository.findAllByUserIdAndIdInOrderByCreatedAtDesc(userId, ids)
+                : bookmarkRepository.findAllByUserIdAndIdInAndFolderIdInOrderByCreatedAtDesc(
+                        userId, ids, List.of(sourceFolderId, targetFolderId));
+        Set<Long> affectedFolders = owned.stream().map(Bookmark::getFolderId)
+                .filter(folderId -> !folderId.equals(targetFolderId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (!affectedFolders.isEmpty()) {
+            tagService.moveBookmarkTags(userId, owned, targetFolderId);
+            affectedFolders.add(targetFolderId);
+        }
+        for (Long folderId : affectedFolders) {
+            folderCoverUpdater.update(findUserFolder(userId, folderId));
+        }
+        return owned.stream().map(Bookmark::getId).toList();
+    }
 
     // =====================================================
     // 7. 共用方法：查詢使用者自己的收藏夾

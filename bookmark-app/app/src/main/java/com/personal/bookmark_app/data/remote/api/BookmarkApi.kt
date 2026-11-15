@@ -7,6 +7,7 @@ import com.personal.bookmark_app.data.remote.dto.response.PageResponse
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkResponse
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSearchResponse
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSourceResponse
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -42,13 +43,17 @@ interface BookmarkApi {
         @Query("tag") tags: List<String>
     ): List<Long>
 
-    @GET("api/bookmarks/search")
+    @GET("api/bookmarks/search/page")
     suspend fun searchBookmarks(
         @Query("query") query: String?,
         @Query("source") source: String?,
         @Query("page") page: Int,
-        @Query("size") size: Int = 20
+        @Query("size") size: Int,
+        @Query("includeSourceCounts") includeSourceCounts: Boolean
     ): BookmarkSearchResponse
+
+    @GET("api/bookmarks/search/source-counts")
+    suspend fun getSearchSourceCounts(@Query("query") query: String?): Map<String, Long>
 
     @PATCH("api/bookmarks/{bookmarkId}")
     suspend fun updateBookmark(
@@ -62,7 +67,35 @@ interface BookmarkApi {
         @Body request: MoveBookmarkRequest
     ): BookmarkResponse
 
+    @POST("api/bookmarks/batch/delete")
+    suspend fun deleteBookmarkBatch(@Body request: BatchDeleteRequest): BatchResult
+
+    @POST("api/bookmarks/move-jobs/{id}")
+    suspend fun submitBatchMove(@Path("id") id: String, @Body request: BookmarkBatchMoveRequest): BookmarkBatchJobStatus
+
+    @POST("api/bookmarks/move-jobs/{id}/delete")
+    suspend fun submitBatchDelete(@Path("id") id: String, @Body request: BookmarkBatchDeleteRequest): BookmarkBatchJobStatus
+
+    @GET("api/bookmarks/move-jobs/{id}")
+    suspend fun getBatchJob(@Path("id") id: String): BookmarkBatchJobStatus
+
+    @GET("api/bookmarks/move-jobs/{id}/failed-ids")
+    suspend fun getBatchJobFailedBookmarkIds(@Path("id") id: String): List<Long>
+
+    @GET("api/bookmarks/move-jobs/latest")
+    suspend fun getLatestBatchJob(@Query("includeDelete") includeDelete: Boolean = true): Response<BookmarkBatchJobStatus>
+
     @DELETE("api/bookmarks/{bookmarkId}")
     suspend fun deleteBookmark(@Path("bookmarkId") bookmarkId: Long)
 }
+
+data class BatchDeleteRequest(val ids: List<Long>)
+data class BookmarkBatchDeleteRequest(val sourceFolderId: Long, val ids: List<Long>)
+data class BookmarkBatchMoveRequest(val ids: List<Long>, val sourceFolderId: Long, val targetFolderId: Long)
+
+data class BookmarkBatchJobStatus(val id: String, val total: Int, val succeeded: Int, val failed: Int, val deleting: Boolean = false) {
+    val processed: Int get() = succeeded + failed
+    val finished: Boolean get() = processed == total
+}
+data class BatchResult(val succeededIds: List<Long>)
 

@@ -1,11 +1,15 @@
 package com.personal.bookmark_app
 
 import java.util.UUID
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,6 +22,8 @@ data class SharedBookmark(val id: String, val text: String, val title: String)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private var sharedBookmark by mutableStateOf<SharedBookmark?>(null)
+    private val requestNotificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedBookmark = savedInstanceState?.getString("shareId")?.let {
@@ -35,6 +41,20 @@ class MainActivity : ComponentActivity() {
                     if (sharedBookmark?.id == id) sharedBookmark = null
                 })
             }
+        }
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+
+        val preferences = getPreferences(MODE_PRIVATE)
+        val permissionHandled = "notification_permission_handled"
+        if (preferences.getBoolean(permissionHandled, false)) return
+
+        preferences.edit().putBoolean(permissionHandled, true).apply()
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 

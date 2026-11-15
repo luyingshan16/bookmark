@@ -5,6 +5,8 @@ import com.personal.bookmark_backend.entity.Bookmark;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -27,6 +29,16 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
             @Param("seed") long seed,
             Pageable pageable
     );
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Bookmark b where b.userId = :userId and b.folderId = :folderId and b.id in :ids")
+    void deleteBatch(Long userId, Long folderId, List<Long> ids);
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from Bookmark b where b.userId = :userId and b.folderId = :folderId")
+    void deleteAllInFolder(Long userId, Long folderId);
+
+    boolean existsByUserIdAndFolderId(Long userId, Long folderId);
 
     long countByUserId(Long userId);
 
@@ -70,9 +82,23 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
 
     List<Bookmark> findAllByUserIdAndIdInOrderByCreatedAtDesc(Long userId, List<Long> ids);
 
-    // 搜尋列表與來源統計共用關鍵字條件；平台條件只用在列表。
-    String SEARCH_FILTER = """
-            from Bookmark b
+    List<Bookmark> findAllByUserIdAndIdInAndFolderIdInOrderByCreatedAtDesc(
+            Long userId, List<Long> ids, List<Long> folderIds);
+
+    interface BookmarkLocation {
+        Long getId();
+        Long getFolderId();
+    }
+
+    @Query("""
+            select b.id as id, b.folderId as folderId from Bookmark b
+            where b.userId = :userId and b.id in :ids
+              and (:sourceFolderId is null or b.folderId = :sourceFolderId)
+            order by b.createdAt desc
+            """)
+    List<BookmarkLocation> findLocationsForDelete(Long userId, List<Long> ids, Long sourceFolderId);
+
+    String SEARCH_TEXT_FILTER = """
             where b.userId = :userId
               and (:query is null or :query = ''
                    or lower(b.title) like lower(concat('%', :query, '%'))
@@ -80,20 +106,43 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
                    or lower(b.content) like lower(concat('%', :query, '%'))
                    or lower(b.note) like lower(concat('%', :query, '%'))
                    or lower(b.source) like lower(concat('%', :query, '%'))
-                   or exists (
-                       select 1 from BookmarkTag bt, Tag t
-                       where bt.id.bookmarkId = b.id
-                         and bt.id.tagId = t.id
-                         and bt.userId = :userId
-                         and lower(t.name) like lower(concat('%', :query, '%'))
-                   ))
             """;
 
-    @Query("select b " + SEARCH_FILTER + """
+    String SEARCH_TAG_FILTER = """
+            bt.id.tagId = t.id and bt.userId = :userId
+            and lower(t.name) like lower(concat('%', :query, '%'))
+            """;
+
+    // 依排序逐筆比對標籤，找到足夠結果就能結束分頁查詢。
+    String SEARCH_PAGE_FILTER = "from Bookmark b " + SEARCH_TEXT_FILTER + """
+                   or exists (
+                       select 1 from BookmarkTag bt, Tag t
+                       where bt.id.bookmarkId = b.id and
+            """ + SEARCH_TAG_FILTER + "))";
+
+    // 統計要掃描全部候選收藏，先彙總並去重標籤命中。
+    String SEARCH_COUNT_FILTER = """
+            from Bookmark b
+            left join (
+                select distinct bt.id.bookmarkId as bookmarkId
+                from Tag t, BookmarkTag bt
+                where :query is not null and :query <> '' and
+            """ + SEARCH_TAG_FILTER + """
+            ) matchingTags on matchingTags.bookmarkId = b.id
+            """ + SEARCH_TEXT_FILTER + """
+                   or matchingTags.bookmarkId is not null)
+            """;
+
+    String SEARCH_SOURCE_FILTER = """
               and (:source is null or :source = ''
                    or lower(b.source) = lower(:source))
+            """;
+
+    String ORDERED_SEARCH = "select b " + SEARCH_PAGE_FILTER + SEARCH_SOURCE_FILTER + """
             order by b.createdAt desc, b.id desc
-            """)
+            """;
+
+    @Query(value = ORDERED_SEARCH, countQuery = "select count(b) " + SEARCH_COUNT_FILTER + SEARCH_SOURCE_FILTER)
     Page<Bookmark> searchForUser(
             @Param("userId") Long userId,
             @Param("query") String query,
@@ -101,7 +150,15 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
             Pageable pageable
     );
 
-    @Query("select b.source, count(b) " + SEARCH_FILTER + """
+    @Query(ORDERED_SEARCH)
+    Slice<Bookmark> searchSliceForUser(
+            @Param("userId") Long userId,
+            @Param("query") String query,
+            @Param("source") String source,
+            Pageable pageable
+    );
+
+    @Query("select b.source, count(b) " + SEARCH_COUNT_FILTER + """
             group by b.source
             """)
     List<Object[]> countSearchResultsBySource(
@@ -121,7 +178,13 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
 
     // 查詢指定收藏夾中最新建立的收藏
     // 用於取得收藏夾封面應該顯示的最新收藏圖片
-    Optional<Bookmark> findTopByUserIdAndFolderIdOrderByCreatedAtDesc(
+    List<Bookmark> findByUserIdAndFolderIdOrderByCreatedAtDescIdDesc(Long userId, Long folderId, Pageable pageable);
+
+    interface BookmarkCover {
+        String getImageUrl();
+    }
+
+    Optional<BookmarkCover> findTopByUserIdAndFolderIdOrderByCreatedAtDesc(
             Long userId,
             Long folderId
     );

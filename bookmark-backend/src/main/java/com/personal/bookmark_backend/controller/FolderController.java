@@ -6,9 +6,12 @@ import com.personal.bookmark_backend.dto.request.folder.UpdateFolderRequest;
 import com.personal.bookmark_backend.dto.response.folder.FolderResponse;
 import com.personal.bookmark_backend.dto.response.PageResponse;
 import com.personal.bookmark_backend.entity.Folder;
+import com.personal.bookmark_backend.exception.ResourceNotFoundException;
+import com.personal.bookmark_backend.service.FolderJobs;
 import com.personal.bookmark_backend.service.FolderService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.HttpStatus;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/folders")
@@ -27,6 +31,7 @@ public class FolderController {
 
     private final FolderService folderService;
     private final FolderMapper folderMapper;
+    private final FolderJobs folderJobs;
 
 
     // =====================================================
@@ -152,17 +157,49 @@ public class FolderController {
     public ResponseEntity<Void> deleteFolder(
             @PathVariable Long folderId,
             @RequestParam(defaultValue = "false") boolean deleteBookmarks,
+            @RequestParam(defaultValue = "false") boolean onlyIfEmpty,
             Authentication authentication
     ) {
 
         Long userId = getUserId(authentication);
 
         // 依照選項刪除收藏夾，並決定保留或一併刪除其中的收藏
-        folderService.deleteFolder(userId, folderId, deleteBookmarks);
+        folderService.deleteFolder(userId, folderId, deleteBookmarks, onlyIfEmpty);
 
         // 刪除成功回傳 HTTP 204
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/{folderId}/jobs/{jobId}")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public FolderJobs.Status submitFolderJob(
+            @PathVariable Long folderId,
+            @PathVariable UUID jobId,
+            @Valid @RequestBody FolderJobRequest request,
+            Authentication authentication
+    ) {
+        return folderJobs.submit(getUserId(authentication), jobId.toString(), folderId,
+                request.targetFolderId(), request.newFolderName(), request.deleteBookmarks());
+    }
+
+    @GetMapping("/jobs/{jobId}")
+    public FolderJobs.Status folderJobStatus(@PathVariable UUID jobId, Authentication authentication) {
+        var status = folderJobs.find(getUserId(authentication), jobId.toString());
+        if (status == null) throw new ResourceNotFoundException("找不到收藏夾任務");
+        return status;
+    }
+
+    @GetMapping("/jobs/latest")
+    public ResponseEntity<FolderJobs.Status> latestFolderJob(Authentication authentication) {
+        var status = folderJobs.latest(getUserId(authentication));
+        return status == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(status);
+    }
+
+    public record FolderJobRequest(
+            @Positive Long targetFolderId,
+            String newFolderName,
+            boolean deleteBookmarks
+    ) {}
 
 
     // =====================================================

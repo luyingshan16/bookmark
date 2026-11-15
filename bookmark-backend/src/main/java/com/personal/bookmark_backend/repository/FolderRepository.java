@@ -25,19 +25,17 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
             SELECT f.*
             FROM folders f
             LEFT JOIN (
-                SELECT
-                    folder_id,
-                    MAX(created_at) AS latest_bookmark_at
+                SELECT user_id, folder_id, MAX(created_at) AS latest_bookmark_at
                 FROM bookmarks
                 WHERE user_id = :userId
-                GROUP BY folder_id
-            ) b ON b.folder_id = f.id
+                GROUP BY user_id, folder_id
+            ) latest ON latest.user_id = f.user_id AND latest.folder_id = f.id
             WHERE f.user_id = :userId
             ORDER BY
                 f.is_default DESC,
                 GREATEST(
                     f.created_at,
-                    COALESCE(b.latest_bookmark_at, f.created_at)
+                    COALESCE(latest.latest_bookmark_at, f.created_at)
                 ) DESC,
                 f.created_at DESC,
                 f.id DESC

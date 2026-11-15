@@ -53,9 +53,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,12 +68,20 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.personal.bookmark_app.data.remote.api.FolderJobRequest
+import com.personal.bookmark_app.data.remote.backendMessage
+import com.personal.bookmark_app.data.remote.dto.response.folder.FolderResponse
 import com.personal.bookmark_app.ui.model.FolderUiModel
 import com.personal.bookmark_app.ui.components.AddFolderDialog
+import com.personal.bookmark_app.ui.components.bookmark.MoveBookmarkSheet
 import com.personal.bookmark_app.ui.utils.MAX_FOLDER_NAME_LENGTH
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 private enum class FolderDeleteAction {
-    MOVE_TO_UNCLASSIFIED,
+    MOVE_BOOKMARKS,
     DELETE_ALL
 }
 
@@ -82,8 +92,9 @@ fun FolderManagementSheet(
     folderCount: Long,
     onDismiss: () -> Unit,
     onRename: (Long, String) -> Unit,
-    onDelete: (Long) -> Unit,
-    onMoveToUnclassified: (Long) -> Unit,
+    onDelete: suspend (Long) -> Unit,
+    onLoadDestinations: suspend (Long) -> List<FolderResponse>,
+    onSubmitJob: suspend (Long, FolderJobRequest) -> Unit,
     onAdd: suspend (String) -> Unit
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -106,10 +117,6 @@ fun FolderManagementSheet(
         mutableStateOf<FolderUiModel?>(null)
     }
 
-    // 使用者選擇的刪除方式
-    var deleteAction by remember {
-        mutableStateOf(FolderDeleteAction.MOVE_TO_UNCLASSIFIED)
-    }
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
     )
@@ -249,8 +256,6 @@ fun FolderManagementSheet(
                                 if (folder.title != "未分類") {
                                     folderToDelete = folder
 
-                                    // 每次開啟 Dialog，預設選擇移至未分類
-                                    deleteAction = FolderDeleteAction.MOVE_TO_UNCLASSIFIED
                                 }
                             }
                         )
@@ -291,40 +296,144 @@ fun FolderManagementSheet(
         )
     }
 
-    // 刪除資料夾 Dialog
     folderToDelete?.let { folder ->
-        DeleteFolderDialog(
+        FolderDeletion(
             folder = folder,
-            selectedAction = deleteAction,
-            onActionChange = {
-                deleteAction = it
-            },
-            onDismiss = {
-                folderToDelete = null
-            },
-            onConfirm = {
-                when {
-                    // 第一種：沒有收藏
-                    folder.count == 0 -> {
-                        onDelete(folder.id)
-                    }
-
-                    // 第二種：移至未分類
-                    deleteAction ==
-                            FolderDeleteAction.MOVE_TO_UNCLASSIFIED -> {
-                        onMoveToUnclassified(folder.id)
-                    }
-
-                    // 第二種：連同收藏一起刪除
-                    deleteAction == FolderDeleteAction.DELETE_ALL -> {
-                        onDelete(folder.id)
-                    }
-                }
-
-                folderToDelete = null
-            }
+            onDismiss = { folderToDelete = null },
+            onDelete = { onDelete(folder.id) },
+            onLoadDestinations = { onLoadDestinations(folder.id) },
+            onSubmitJob = { onSubmitJob(folder.id, it) }
         )
     }
+}
+
+@Composable
+private fun FolderDeletion(
+    folder: FolderUiModel,
+    onDismiss: () -> Unit,
+    onDelete: suspend () -> Unit,
+    onLoadDestinations: suspend () -> List<FolderResponse>,
+    onSubmitJob: suspend (FolderJobRequest) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var action by remember { mutableStateOf(FolderDeleteAction.MOVE_BOOKMARKS) }
+    var choosingDestination by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var operationError by remember { mutableStateOf<String?>(null) }
+
+    fun submitFromCurrentSheet(operation: suspend () -> Unit) {
+        if (isSubmitting) return
+        isSubmitting = true
+        operationError = null
+        scope.launch {
+            try {
+                operation()
+                onDismiss()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                operationError = folderOperationError(error, "無法刪除收藏夾，請稍後再試")
+            } finally {
+                isSubmitting = false
+            }
+        }
+    }
+
+    fun confirmDeletion() {
+        when {
+            folder.count == 0 -> submitFromCurrentSheet { onDelete() }
+            action == FolderDeleteAction.MOVE_BOOKMARKS -> choosingDestination = true
+            else -> submitFromCurrentSheet { onSubmitJob(FolderJobRequest(deleteBookmarks = true)) }
+        }
+    }
+
+    suspend fun moveToNewFolder(name: String) {
+        isSubmitting = true
+        operationError = null
+        try {
+            onSubmitJob(FolderJobRequest(newFolderName = name))
+            onDismiss()
+        } finally {
+            // 送出失敗時，由新增收藏夾對話框在名稱欄位旁顯示錯誤。
+            isSubmitting = false
+        }
+    }
+
+    if (choosingDestination) {
+        FolderMoveDestinationSheet(
+            folder = folder,
+            isSubmitting = isSubmitting,
+            operationError = operationError,
+            onLoadDestinations = onLoadDestinations,
+            onDismiss = {
+                operationError = null
+                choosingDestination = false
+            },
+            onMove = { targetId ->
+                submitFromCurrentSheet { onSubmitJob(FolderJobRequest(targetFolderId = targetId)) }
+            },
+            onCreateFolder = { name -> moveToNewFolder(name) }
+        )
+    } else {
+        DeleteFolderDialog(
+            folder = folder,
+            selectedAction = action,
+            onActionChange = {
+                operationError = null
+                action = it
+            },
+            onDismiss = onDismiss,
+            isSubmitting = isSubmitting,
+            errorMessage = operationError,
+            onConfirm = { confirmDeletion() }
+        )
+    }
+}
+
+@Composable
+private fun FolderMoveDestinationSheet(
+    folder: FolderUiModel,
+    isSubmitting: Boolean,
+    operationError: String?,
+    onLoadDestinations: suspend () -> List<FolderResponse>,
+    onDismiss: () -> Unit,
+    onMove: (Long) -> Unit,
+    onCreateFolder: suspend (String) -> Unit
+) {
+    var destinations by remember { mutableStateOf<List<FolderResponse>?>(null) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        loadError = null
+        try {
+            destinations = onLoadDestinations()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            loadError = folderOperationError(error, "無法載入收藏夾，請稍後再試")
+        }
+    }
+
+    MoveBookmarkSheet(
+        selectedCount = folder.count,
+        folders = destinations.orEmpty(),
+        onDismiss = onDismiss,
+        onMove = onMove,
+        onCreateFolder = onCreateFolder,
+        title = "選擇移動目的地",
+        description = "將 ${folder.count} 筆收藏移到所選收藏夾，再刪除「${folder.title}」。",
+        isLoading = destinations == null && loadError == null,
+        isMoving = isSubmitting,
+        errorMessage = operationError ?: loadError,
+        onRetry = if (loadError != null && operationError == null) ({ reload++ }) else null,
+        createAndDelete = true
+    )
+}
+
+private fun folderOperationError(error: Exception, fallback: String): String = when (error) {
+    is HttpException -> error.backendMessage() ?: fallback
+    is IOException -> "連線至伺服器失敗，請稍後再試"
+    else -> fallback
 }
 
 @Composable
@@ -504,12 +613,14 @@ private fun DeleteFolderDialog(
     selectedAction: FolderDeleteAction,
     onActionChange: (FolderDeleteAction) -> Unit,
     onDismiss: () -> Unit,
+    isSubmitting: Boolean,
+    errorMessage: String?,
     onConfirm: () -> Unit
 ) {
     val hasBookmarks = folder.count > 0
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isSubmitting) onDismiss() },
         title = {
             Text(
                 text = "確定要刪除「${folder.title}」？",
@@ -537,16 +648,13 @@ private fun DeleteFolderDialog(
                 // 有收藏時才顯示兩種處理方式
                 if (hasBookmarks) {
 
-                    // 選項一：移至未分類
                     DeleteFolderOption(
-                        title = "移至「未分類」收藏夾",
-                        description = "保留所有收藏，只刪除這個收藏夾。",
+                        title = "移至其他收藏夾",
+                        description = "選擇既有收藏夾，或新建一個收藏夾來保留收藏。",
                         selected = selectedAction ==
-                                FolderDeleteAction.MOVE_TO_UNCLASSIFIED,
+                                FolderDeleteAction.MOVE_BOOKMARKS,
                         onClick = {
-                            onActionChange(
-                                FolderDeleteAction.MOVE_TO_UNCLASSIFIED
-                            )
+                            if (!isSubmitting) onActionChange(FolderDeleteAction.MOVE_BOOKMARKS)
                         }
                     )
 
@@ -558,24 +666,25 @@ private fun DeleteFolderDialog(
                                 FolderDeleteAction.DELETE_ALL,
                         isDestructive = true,
                         onClick = {
-                            onActionChange(
-                                FolderDeleteAction.DELETE_ALL
-                            )
+                            if (!isSubmitting) onActionChange(FolderDeleteAction.DELETE_ALL)
                         }
                     )
                 }
+                if (errorMessage != null) Text(errorMessage, color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
             TextButton(
-                onClick = onConfirm
+                onClick = onConfirm,
+                enabled = !isSubmitting
             ) {
                 Text(
                     text = when {
+                        isSubmitting -> "刪除中…"
                         !hasBookmarks -> "確認刪除"
                         selectedAction ==
-                                FolderDeleteAction.MOVE_TO_UNCLASSIFIED ->
-                            "確認並移至未分類"
+                                FolderDeleteAction.MOVE_BOOKMARKS ->
+                            "選擇目的地"
 
                         else -> "確認刪除全部"
                     },
@@ -593,7 +702,8 @@ private fun DeleteFolderDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss
+                onClick = onDismiss,
+                enabled = !isSubmitting
             ) {
                 Text(
                     text = "取消",

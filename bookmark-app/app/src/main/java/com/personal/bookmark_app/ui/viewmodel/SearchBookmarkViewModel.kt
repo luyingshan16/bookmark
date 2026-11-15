@@ -18,11 +18,14 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -42,16 +45,50 @@ class SearchBookmarkViewModel @Inject constructor(
     private var appliedFilter = SearchFilter()
     private var searchJob: Job? = null
     private var loadMoveFoldersJob: Job? = null
+    private var countsJob: Job? = null
     private val pages = MutableStateFlow(createPages(appliedFilter))
     val bookmarks = pages.flatMapLatest { it.flow }.cachedIn(viewModelScope)
 
-    private fun createPages(filter: SearchFilter) = PageLoader { page, size ->
-        val response =
-            bookmarkApi.searchBookmarks(filter.query.ifBlank { null }, filter.source, page, size)
-        if (appliedFilter === filter) {
-            _uiState.update { it.copy(sourceCounts = response.sourceCounts) }
+    private fun createPages(filter: SearchFilter) = PageLoader(countPages = false) { page, size ->
+        val response = bookmarkApi.searchBookmarks(
+            filter.query.ifBlank { null }, filter.source, page, size,
+            includeSourceCounts = false
+        )
+        currentCoroutineContext().ensureActive()
+        if (appliedFilter === filter && page == 0) {
+            if (filter.source == null && response.content.isEmpty()) {
+                countsJob?.cancel()
+                _uiState.update {
+                    it.copy(sourceCounts = emptyMap(), countsLoading = false, countsFailed = false)
+                }
+            } else if (_uiState.value.sourceCounts == null &&
+                !_uiState.value.countsLoading && !_uiState.value.countsFailed
+            ) {
+                loadSourceCounts()
+            }
         }
-        PageResponse(response.content, response.page, response.totalPages, response.totalElements)
+        PageResponse(response.content, response.page, 0, 0, hasNext = response.hasNext)
+    }
+
+    fun loadSourceCounts() {
+        countsJob?.cancel()
+        val query = appliedFilter.query
+        _uiState.update { it.copy(countsLoading = true, countsFailed = false) }
+        countsJob = viewModelScope.launch {
+            try {
+                val counts = bookmarkApi.getSearchSourceCounts(query.ifBlank { null })
+                coroutineContext.ensureActive()
+                _uiState.update { it.copy(sourceCounts = counts) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _uiState.update { it.copy(countsFailed = true) }
+            } finally {
+                if (isActive) {
+                    _uiState.update { it.copy(countsLoading = false) }
+                }
+            }
+        }
     }
 
     fun onQueryChange(query: String) {
@@ -83,9 +120,16 @@ class SearchBookmarkViewModel @Inject constructor(
         val nextFilter = SearchFilter(state.query.trim(), state.selectedSource)
         if (nextFilter == appliedFilter) return
 
+        val queryChanged = nextFilter.query != appliedFilter.query
         appliedFilter = nextFilter
+        if (queryChanged) resetSourceCounts()
         _uiState.update { it.copy(mutationError = null) }
         pages.value = createPages(nextFilter)
+    }
+
+    private fun resetSourceCounts() {
+        countsJob?.cancel()
+        _uiState.update { it.copy(sourceCounts = null, countsLoading = false, countsFailed = false) }
     }
 
     fun updateBookmark(
@@ -109,7 +153,7 @@ class SearchBookmarkViewModel @Inject constructor(
         loadMoveFoldersJob?.cancel()
         loadMoveFoldersJob = viewModelScope.launch {
             try {
-                val folders = folderApi.getFolders().filterNot { it.id == bookmark.folderId }
+                val folders = folderChanges.getFolders().filterNot { it.id == bookmark.folderId }
                 _uiState.update {
                     it.copy(
                         moveSelection = BookmarkMoveSelection(bookmark.id, folders),
@@ -156,7 +200,9 @@ class SearchBookmarkViewModel @Inject constructor(
                 action()
                 folderChanges.notifyChanged()
                 _uiState.update { it.copy(mutationError = null) }
-                pages.value.refresh()
+                resetSourceCounts()
+                appliedFilter = appliedFilter.copy()
+                pages.value = createPages(appliedFilter)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {

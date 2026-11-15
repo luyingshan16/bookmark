@@ -14,6 +14,10 @@ import com.personal.bookmark_backend.service.BookmarkResponseAssembler;
 import com.personal.bookmark_backend.service.PasswordResetRateLimiter;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.HttpStatus;
@@ -157,20 +161,14 @@ public class BookmarkController {
             Authentication authentication
     ) {
         Long userId = getUserId(authentication);
-        String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
-        String normalizedSource = source == null || source.isBlank() ? null : source.trim();
-        if ((normalizedQuery != null && normalizedQuery.length() > 255)
-                || (normalizedSource != null && normalizedSource.length() > 30)) {
-            throw new IllegalArgumentException("收藏搜尋條件過長");
-        }
-        int safePage = Math.max(0, page);
-        int safeSize = Math.max(1, Math.min(size, 50));
+        String normalizedQuery = normalizeSearchTerm(query, 255);
+        String normalizedSource = normalizeSearchTerm(source, 30);
 
         Page<Bookmark> results = bookmarkService.searchBookmarks(
                 userId,
                 normalizedQuery,
                 normalizedSource,
-                PageRequest.of(safePage, safeSize)
+                searchPageRequest(page, size)
         );
 
         List<BookmarkResponse> content = bookmarkResponses.toResponses(
@@ -192,6 +190,78 @@ public class BookmarkController {
                         sourceCounts
                 )
         );
+    }
+
+    @GetMapping("/bookmarks/search/page")
+    public SearchPage searchBookmarkPage(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String source,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "true") boolean includeSourceCounts,
+            Authentication authentication
+    ) {
+        Long userId = getUserId(authentication);
+        String normalizedQuery = normalizeSearchTerm(query, 255);
+        var results = bookmarkService.searchBookmarkSlice(userId, normalizedQuery,
+                normalizeSearchTerm(source, 30), searchPageRequest(page, size));
+        var counts = includeSourceCounts
+                ? bookmarkService.countSearchResultsBySource(userId, normalizedQuery) : null;
+        return new SearchPage(bookmarkResponses.toResponses(userId, results.getContent()),
+                results.getNumber(), results.hasNext(), counts);
+    }
+
+    @GetMapping("/bookmarks/search/source-counts")
+    public Map<String, Long> searchSourceCounts(
+            @RequestParam(required = false) String query, Authentication authentication
+    ) {
+        return bookmarkService.countSearchResultsBySource(
+                getUserId(authentication), normalizeSearchTerm(query, 255));
+    }
+
+    public record SearchPage(
+            List<BookmarkResponse> content, int page, boolean hasNext, Map<String, Long> sourceCounts
+    ) {
+    }
+
+    private static String normalizeSearchTerm(String term, int maxLength) {
+        if (term == null || term.isBlank()) return null;
+        String normalized = term.trim();
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException("收藏搜尋條件過長");
+        }
+        return normalized;
+    }
+
+    private static PageRequest searchPageRequest(int page, int size) {
+        return PageRequest.of(Math.max(0, page), Math.max(1, Math.min(size, 50)));
+    }
+
+    @PostMapping("/bookmarks/batch/delete")
+    public BatchResult deleteBookmarkBatch(
+            @Valid @RequestBody BatchDeleteRequest request, Authentication authentication
+    ) {
+        return new BatchResult(bookmarkService.deleteBookmarkBatch(getUserId(authentication), request.ids()));
+    }
+
+    @PostMapping("/bookmarks/batch/move")
+    public BatchResult moveBookmarkBatch(
+            @Valid @RequestBody BatchMoveRequest request, Authentication authentication
+    ) {
+        return new BatchResult(bookmarkService.moveBookmarkBatch(
+                getUserId(authentication), request.ids(), request.targetFolderId()));
+    }
+
+    public record BatchDeleteRequest(@NotEmpty @Size(max = 100) List<@NotNull @Positive Long> ids) {
+    }
+
+    public record BatchMoveRequest(
+            @NotEmpty @Size(max = 100) List<@NotNull @Positive Long> ids,
+            @NotNull @Positive Long targetFolderId
+    ) {
+    }
+
+    public record BatchResult(List<Long> succeededIds) {
     }
 
     // 查詢單筆收藏

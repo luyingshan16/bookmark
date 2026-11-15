@@ -31,6 +31,33 @@ public class DailyPickSelectionService {
         users.lockById(userId).orElseThrow(() -> new ResourceNotFoundException("找不到使用者"));
     }
 
+    @Transactional(readOnly = true)
+    public Optional<Selection> readCurrent(Long userId) {
+        LocalDate day = selectionDateAt(Instant.now());
+        var rows = selections.findAllByUserIdOrderByPositionAsc(userId);
+        if (rows.isEmpty()) {
+            long count = bookmarks.countByUserId(userId);
+            return count < 3 ? Optional.of(new Selection(day, count, List.of())) : Optional.empty();
+        }
+
+        if (rows.size() != 3) return Optional.empty();
+        for (int index = 0; index < rows.size(); index++) {
+            var row = rows.get(index);
+            if (!day.equals(row.getSelectionDate()) || !Objects.equals(row.getPosition(), index + 1)) {
+                return Optional.empty();
+            }
+        }
+        var ids = rows.stream().map(DailyPickSelection::getBookmarkId).toList();
+        if (new HashSet<>(ids).size() != 3) return Optional.empty();
+        var owned = bookmarks.findAllByUserIdAndIdInOrderByCreatedAtDesc(userId, ids);
+        if (owned.size() != 3) return Optional.empty();
+
+        Map<Long, Bookmark> byId = new HashMap<>();
+        owned.forEach(bookmark -> byId.put(bookmark.getId(), bookmark));
+        return Optional.of(new Selection(day, bookmarks.countByUserId(userId),
+                ids.stream().map(byId::get).toList()));
+    }
+
     @Transactional
     public Selection select(Long userId, boolean refresh, Long includeId) {
         if (refresh) {
@@ -148,5 +175,11 @@ public class DailyPickSelectionService {
             selections.deleteAllByUserIdAndBookmarkIdIn(userId, ids);
             selections.flush();
         }
+    }
+
+    @Transactional
+    public void removeBookmarksInFolder(Long userId, Long folderId) {
+        lockUser(userId);
+        selections.deleteSelectionsInFolder(userId, folderId);
     }
 }

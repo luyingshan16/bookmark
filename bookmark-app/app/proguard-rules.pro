@@ -19,3 +19,13 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Preserve the API's JSON keys and DTOs instantiated through Gson reflection.
+-keep,allowoptimization,allowobfuscation class com.personal.bookmark_app.data.remote.dto.**
+-keepclassmembers,allowoptimization class com.personal.bookmark_app.data.remote.dto.** {
+    !static !transient <fields>;
+}
+-keep,allowoptimization,allowobfuscation class com.personal.bookmark_app.data.remote.api.*Request,com.personal.bookmark_app.data.remote.api.*Response,com.personal.bookmark_app.data.remote.api.*Status,com.personal.bookmark_app.data.remote.api.*Result
+-keepclassmembers,allowoptimization class com.personal.bookmark_app.data.remote.api.*Request,com.personal.bookmark_app.data.remote.api.*Response,com.personal.bookmark_app.data.remote.api.*Status,com.personal.bookmark_app.data.remote.api.*Result {
+    !static !transient <fields>;
+}

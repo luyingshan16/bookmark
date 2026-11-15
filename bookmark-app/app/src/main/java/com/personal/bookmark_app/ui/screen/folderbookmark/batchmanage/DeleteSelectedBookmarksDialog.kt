@@ -9,7 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun DeleteBookmarkDialog(
+fun DeleteSelectedBookmarksDialog(
     selectedCount: Int,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit

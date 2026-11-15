@@ -31,7 +31,10 @@ import java.io.IOException
 @Composable
 fun AddFolderDialog(
     onDismiss: () -> Unit,
-    onConfirm: suspend (String) -> Unit
+    onConfirm: suspend (String) -> Unit,
+    confirmLabel: String = "新增",
+    submittingLabel: String = "新增中…",
+    failureMessage: String = "新增收藏夾失敗，請稍後再試"
 ) {
     var folderName by rememberSaveable {
         mutableStateOf("")
@@ -94,15 +97,15 @@ fun AddFolderDialog(
                         } catch (error: Exception) {
                             errorMessage = when {
                                 error is HttpException && error.code() == 409 ->
-                                    "收藏夾名稱已存在，請換個名稱"
+                                    error.backendMessage() ?: "收藏夾名稱已存在，請換個名稱"
 
-                                error is HttpException && error.code() == 400 ->
-                                    error.backendMessage() ?: "請確認收藏夾名稱"
+                                error is HttpException && error.code() in 400..499 ->
+                                    error.backendMessage() ?: failureMessage
 
                                 error is IOException ->
                                     "連線至伺服器失敗，請稍後再試"
 
-                                else -> "新增收藏夾失敗，請稍後再試"
+                                else -> failureMessage
                             }
                         } finally {
                             isSubmitting = false
@@ -111,7 +114,7 @@ fun AddFolderDialog(
                 },
                 enabled = trimmedName.isNotEmpty() && !nameTooLong && !isSubmitting
             ) {
-                Text(if (isSubmitting) "新增中…" else "新增")
+                Text(if (isSubmitting) submittingLabel else confirmLabel)
             }
         },
         dismissButton = {

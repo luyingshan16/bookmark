@@ -39,12 +39,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,14 +64,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
 import com.personal.bookmark_app.ui.components.bookmark.BookmarkCard
 import com.personal.bookmark_app.ui.components.bookmark.MoveBookmarkSheet
 import com.personal.bookmark_app.ui.components.SearchInputField
 import com.personal.bookmark_app.ui.components.TagInfoPopup
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSourceResponse
 import com.personal.bookmark_app.ui.model.toUiModel
-import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.BatchManageBottomBar
-import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.DeleteBookmarkDialog
+import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.BookmarkBatchActionBar
+import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.DeleteSelectedBookmarksDialog
 import com.personal.bookmark_app.ui.viewmodel.FolderBookmarkViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,6 +97,20 @@ fun FolderBookmarkScreen(
     val loadFailed =
         bookmarks.loadState.refresh is LoadState.Error || bookmarks.loadState.append is LoadState.Error
     val context = LocalContext.current
+    val batchProgress = uiState.batchProgress
+    val canRunInBackground = batchProgress?.let { it.supportsBackground && !it.finished } == true
+    var hideBatchProgress by remember { mutableStateOf(false) }
+    val batchResult = batchProgress?.takeIf { it.finished }
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(batchResult) {
+        if (batchResult != null) {
+            snackbarHostState.showSnackbar(
+                message = "${batchResult.action.label}完成：成功 ${batchResult.succeeded} 筆，失敗 ${batchResult.failed} 筆",
+                duration = SnackbarDuration.Short
+            )
+            viewModel.consumeBatchResult(batchResult)
+        }
+    }
     val folderName = uiState.folderName
     val availableTags = uiState.tags
     val busy = loading || uiState.isMutating
@@ -112,7 +131,9 @@ fun FolderBookmarkScreen(
 
     val availableFolders = uiState.folders.filterNot { it.id == folderId }
     BackHandler(enabled = isBatchManaging || uiState.isMutating) {
-        if (!uiState.isMutating) {
+        if (canRunInBackground) {
+            onBackClick()
+        } else if (!uiState.isMutating) {
             isBatchManaging = false
             selectedBookmarkIds = emptySet()
         }
@@ -188,7 +209,8 @@ fun FolderBookmarkScreen(
         if (idsToDelete.isEmpty()) return
         if (busy) return
         showDeleteDialog = false
-        viewModel.delete(
+        hideBatchProgress = false
+        viewModel.deleteBatch(
             idsToDelete,
             onRemoved = { removed ->
                 if (removed.isNotEmpty()) matchingIds = null
@@ -200,10 +222,11 @@ fun FolderBookmarkScreen(
         viewModel.loadMoveFolders { bookmarkIdsToMove = ids }
     }
 
-    fun moveBookmarks(destination: Long) {
+    fun submitMove(destination: Long) {
         val ids = bookmarkIdsToMove
         if (ids.isEmpty() || busy) return
         bookmarkIdsToMove = emptyList()
+        hideBatchProgress = false
         viewModel.move(ids, destination, onRemoved = { removed ->
             if (removed.isNotEmpty()) matchingIds = null
             selectedBookmarkIds -= removed
@@ -217,12 +240,17 @@ fun FolderBookmarkScreen(
     // ------------------------------------
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             FolderBookmarkTopBar(
                 folderName = folderName,
                 isBatchManaging = isBatchManaging,
                 onBackClick = {
+                    if (canRunInBackground) {
+                        onBackClick()
+                        return@FolderBookmarkTopBar
+                    }
                     if (uiState.isMutating) return@FolderBookmarkTopBar
                     if (isBatchManaging) {
                         finishBatchManaging()
@@ -243,7 +271,7 @@ fun FolderBookmarkScreen(
         },
         bottomBar = {
             if (isBatchManaging) {
-                BatchManageBottomBar(
+                BookmarkBatchActionBar(
                     isAllSelected = isAllSelected,
                     hasBookmarks = uiState.totalCount > 0 && !busy,
                     hasSelection = selectedCount > 0 && !busy,
@@ -378,19 +406,28 @@ fun FolderBookmarkScreen(
         }
     }
 
+    if (batchProgress != null && !batchProgress.finished &&
+        (!canRunInBackground || !hideBatchProgress)
+    ) {
+        BookmarkBatchIndicator(
+            title = "${batchProgress.action.label}中…",
+            processed = batchProgress.processed,
+            total = batchProgress.total,
+            onBackground = if (canRunInBackground) ({ hideBatchProgress = true }) else null
+        )
+    }
+
     // ------------------------------------
     // 刪除確認 Dialog
     // ------------------------------------
 
     if (showDeleteDialog) {
-        DeleteBookmarkDialog(
+        DeleteSelectedBookmarksDialog(
             selectedCount = selectedCount,
             onDismiss = {
                 showDeleteDialog = false
             },
-            onConfirm = {
-                deleteSelectedBookmarks()
-            }
+            onConfirm = ::deleteSelectedBookmarks
         )
     }
 
@@ -403,11 +440,17 @@ fun FolderBookmarkScreen(
             selectedCount = bookmarkIdsToMove.size,
             folders = availableFolders,
             onDismiss = { bookmarkIdsToMove = emptyList() },
-            onMove = ::moveBookmarks,
+            onMove = ::submitMove,
             onCreateFolder = viewModel::createFolder
         )
     }
 }
+
+private val BookmarkBatchAction.label: String
+    get() = when (this) {
+        BookmarkBatchAction.MOVE -> "移動"
+        BookmarkBatchAction.DELETE -> "刪除"
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -25,6 +25,8 @@ private val Context.dataStore by preferencesDataStore(
 
 private val ACCESS_TOKEN = stringPreferencesKey("access_token")
 private val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
+private val SHOWN_BATCH_JOB_RESULT = stringPreferencesKey("shown_move_result")
+private val SHOWN_FOLDER_JOB_RESULT = stringPreferencesKey("shown_folder_move_result")
 private val SESSION_ID = stringPreferencesKey("local_session_id")
 private val REFRESH_REQUEST_ID = stringPreferencesKey("refresh_request_id")
 private var sessionStore: DataStore<Preferences>? = null
@@ -116,6 +118,17 @@ class UserPreferencesRepository @Inject constructor(
         val refreshToken = preferences[REFRESH_TOKEN]?.takeIf { it.isNotBlank() } ?: return null
         val sessionId = preferences[SESSION_ID] ?: return null
         return SessionTokens(sessionId, preferences[ACCESS_TOKEN], refreshToken)
+    }
+
+    internal suspend fun wasJobResultShown(sessionId: String, jobId: String, isFolderJob: Boolean = false): Boolean =
+        session.data.first()[if (isFolderJob) SHOWN_FOLDER_JOB_RESULT else SHOWN_BATCH_JOB_RESULT] == "$sessionId:$jobId"
+
+    internal suspend fun markJobResultShown(sessionId: String, jobId: String, isFolderJob: Boolean = false) {
+        session.edit { preferences ->
+            if (preferences[SESSION_ID] == sessionId) {
+                preferences[if (isFolderJob) SHOWN_FOLDER_JOB_RESULT else SHOWN_BATCH_JOB_RESULT] = "$sessionId:$jobId"
+            }
+        }
     }
 
     internal suspend fun beginRefresh(expected: SessionTokens, requestId: String): String? {

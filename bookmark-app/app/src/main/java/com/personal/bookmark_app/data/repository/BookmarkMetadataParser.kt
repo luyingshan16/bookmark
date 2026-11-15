@@ -4,15 +4,19 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParseException
 import com.google.gson.JsonParser
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import kotlin.coroutines.resumeWithException
 
 data class BookmarkMetadata(
     val url: String, val title: String, val content: String, val imageUrl: String?
@@ -35,28 +39,46 @@ class BookmarkMetadataParser internal constructor(private val client: OkHttpClie
             .connectTimeout(10, TimeUnit.SECONDS).followRedirects(true).build()
     )
 
-    suspend fun parse(url: String): BookmarkMetadata = withContext(Dispatchers.IO) {
+    suspend fun parse(url: String): BookmarkMetadata {
         require(url.toHttpUrlOrNull() != null) { "網址格式不正確" }
         val request = Request.Builder().url(url).header(
             "User-Agent",
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0 Mobile Safari/537.36"
         ).header("Accept", "text/html,application/xhtml+xml").build()
-        client.newCall(request).execute().use { response ->
-            if (response.header("cf-mitigated").equals("challenge", ignoreCase = true)) {
-                throw BookmarkBrowserChallengeException()
-            }
-            if (!response.isSuccessful) throw BookmarkHttpException(response.code)
-            val body = checkNotNull(response.body)
-            check(
-                body.contentType()?.subtype.orEmpty().contains("html")
-            ) { "此網址未提供可解析的網頁" }
-            val finalUrl = response.request.url.toString()
-            // Metadata near the start of the page is still usable when the rest exceeds the limit.
-            val doc = response.peekBody(2L * 1024 * 1024).byteStream().use {
-                Jsoup.parse(it, body.contentType()?.charset()?.name(), finalUrl)
-            }
-            metadataFromDocument(doc, finalUrl)
+        return suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (continuation.isActive) {
+                            continuation.resumeWith(runCatching { parseResponse(it) })
+                        }
+                    }
+                }
+            })
         }
+    }
+
+    private fun parseResponse(response: Response): BookmarkMetadata {
+        if (response.header("cf-mitigated").equals("challenge", ignoreCase = true)) {
+            throw BookmarkBrowserChallengeException()
+        }
+        if (!response.isSuccessful) throw BookmarkHttpException(response.code)
+        val body = checkNotNull(response.body)
+        check(
+            body.contentType()?.subtype.orEmpty().contains("html")
+        ) { "此網址未提供可解析的網頁" }
+        val finalUrl = response.request.url.toString()
+        // Metadata near the start of the page is still usable when the rest exceeds the limit.
+        val doc = response.peekBody(2L * 1024 * 1024).byteStream().use {
+            Jsoup.parse(it, body.contentType()?.charset()?.name(), finalUrl)
+        }
+        return metadataFromDocument(doc, finalUrl)
     }
 }
 

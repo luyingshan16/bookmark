@@ -33,8 +33,41 @@ public interface BookmarkTagRepository
             @Param("bookmarkId") Long bookmarkId
     );
 
-    // 一次查詢多筆收藏的標籤關聯
-    // 用於批次搬移收藏時，保留每一筆收藏原本的標籤
+    interface BookmarkTagName {
+        Long getBookmarkId();
+        String getTagName();
+    }
+
+    @Query("""
+            select b.id as bookmarkId, t.name as tagName
+            from BookmarkTag bt
+            join Bookmark b on b.id = bt.id.bookmarkId
+                and b.userId = bt.userId and b.folderId = bt.folderId
+            join Tag t on t.id = bt.id.tagId
+                and t.userId = bt.userId and t.folderId = bt.folderId
+            where bt.userId = :userId and b.id in :bookmarkIds
+            order by b.id, t.createdAt, t.id
+            """)
+    List<BookmarkTagName> findTagNamesForBookmarks(Long userId, List<Long> bookmarkIds);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            delete from BookmarkTag bt
+            where bt.userId = :userId and bt.folderId = :folderId and bt.id.bookmarkId in :bookmarkIds
+            """)
+    void deleteByBookmarkIds(Long userId, Long folderId, List<Long> bookmarkIds);
+
+    @Modifying(flushAutomatically = true)
+    @Query("delete from BookmarkTag bt where bt.userId = :userId and bt.folderId = :folderId")
+    void deleteAllInFolder(Long userId, Long folderId);
+
+    @Query("""
+            select distinct bt.id.tagId from BookmarkTag bt
+            where bt.userId = :userId and bt.folderId = :folderId and bt.id.bookmarkId in :bookmarkIds
+            """)
+    List<Long> findTagIdsForBookmarks(Long userId, Long folderId, List<Long> bookmarkIds);
+
+    // 批次取得收藏的標籤關聯
     @Query("""
             SELECT bt
             FROM BookmarkTag bt
@@ -47,6 +80,17 @@ public interface BookmarkTagRepository
             @Param("folderId") Long folderId,
             @Param("bookmarkIds") List<Long> bookmarkIds
     );
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            delete from Tag t
+            where t.userId = :userId and t.folderId = :folderId and t.id in :tagIds
+              and not exists (
+                  select 1 from BookmarkTag bt
+                  where bt.userId = t.userId and bt.folderId = t.folderId and bt.id.tagId = t.id
+              )
+            """)
+    void deleteUnusedTags(Long userId, Long folderId, List<Long> tagIds);
 
     // 計算指定標籤目前有多少筆收藏關聯
     // 如果回傳 0，代表這個標籤已經沒有任何收藏使用

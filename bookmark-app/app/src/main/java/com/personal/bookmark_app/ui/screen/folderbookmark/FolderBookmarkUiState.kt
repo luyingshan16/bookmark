@@ -12,5 +12,22 @@ data class FolderBookmarkUiState(
     val error: String? = null,
     val searchQuery: String = "",
     val selectedTags: Set<String> = emptySet(),
-    val isNewestFirst: Boolean = true
+    val isNewestFirst: Boolean = true,
+    val batchProgress: BookmarkBatchProgress? = null
 )
+
+data class JobResultReceipt(val sessionId: String, val jobId: String)
+
+enum class BookmarkBatchAction { MOVE, DELETE }
+
+data class BookmarkBatchProgress(
+    val action: BookmarkBatchAction,
+    val total: Int,
+    val processed: Int = 0,
+    val succeeded: Int = 0,
+    val supportsBackground: Boolean = false,
+    val resultReceipt: JobResultReceipt? = null
+) {
+    val finished: Boolean get() = processed == total
+    val failed: Int get() = processed - succeeded
+}

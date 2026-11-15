@@ -300,7 +300,7 @@ class AddBookmarkViewModel @Inject constructor(
         if (_state.value.isSaving) return
         _state.value = _state.value.copy(isLoading = true, errorMessage = null)
         request {
-            val folders = folderApi.getFolders().map { it.toUiModel() }
+            val folders = folderChanges.getFolders().map { it.toUiModel() }
             _state.value = _state.value.copy(folders = folders, isLoading = false)
             selectFolder(
                 folders.firstOrNull { it.title == "未分類" }?.id ?: folders.firstOrNull()?.id ?: 0L

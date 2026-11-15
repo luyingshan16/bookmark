@@ -8,9 +8,6 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,16 +22,9 @@ public class BookmarkResponseAssembler {
     }
 
     public List<BookmarkResponse> toResponses(Long userId, List<Bookmark> bookmarks) {
-        // 標籤按收藏夾查詢，每個收藏夾只查一次。
-        Map<Long, List<Long>> idsByFolder = new LinkedHashMap<>();
-        for (Bookmark bookmark : bookmarks) {
-            idsByFolder.computeIfAbsent(bookmark.getFolderId(), id -> new ArrayList<>())
-                    .add(bookmark.getId());
-        }
-
-        Map<Long, List<String>> tagsByBookmark = new HashMap<>();
-        idsByFolder.forEach((folderId, ids) ->
-                tagsByBookmark.putAll(tagService.getBookmarkTagNames(userId, folderId, ids)));
+        if (bookmarks.isEmpty()) return List.of();
+        List<Long> ids = bookmarks.stream().map(Bookmark::getId).toList();
+        Map<Long, List<String>> tagsByBookmark = tagService.getBookmarkTagNames(userId, ids);
 
         // 依照原本的收藏順序建立回應，沒有標籤的收藏回傳空清單。
         return bookmarks.stream()

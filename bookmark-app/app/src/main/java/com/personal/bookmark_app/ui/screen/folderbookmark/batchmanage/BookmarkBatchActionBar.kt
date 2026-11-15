@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun BatchManageBottomBar(
+fun BookmarkBatchActionBar(
     isAllSelected: Boolean,
     hasBookmarks: Boolean,
     hasSelection: Boolean,

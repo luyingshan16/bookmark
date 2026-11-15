@@ -3,6 +3,7 @@ package com.personal.bookmark_backend.repository;
 import com.personal.bookmark_backend.entity.DailyPickSelection;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.LocalDate;
@@ -15,4 +16,12 @@ public interface DailyPickSelectionRepository extends JpaRepository<DailyPickSel
     List<Long> findUsersWithOlderSelections(LocalDate date);
 
     void deleteAllByUserIdAndBookmarkIdIn(Long userId, List<Long> bookmarkIds);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            delete from DailyPickSelection s where s.userId = :userId and s.bookmarkId in (
+                select b.id from Bookmark b where b.userId = :userId and b.folderId = :folderId
+            )
+            """)
+    void deleteSelectionsInFolder(Long userId, Long folderId);
 }

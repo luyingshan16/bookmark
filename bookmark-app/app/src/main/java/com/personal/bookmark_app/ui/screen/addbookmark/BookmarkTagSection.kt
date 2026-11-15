@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.personal.bookmark_app.ui.components.TagInfoPopup
 import com.personal.bookmark_app.ui.model.TagOptionUiModel
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun BookmarkTagSection(
     tags: List<TagOptionUiModel>,

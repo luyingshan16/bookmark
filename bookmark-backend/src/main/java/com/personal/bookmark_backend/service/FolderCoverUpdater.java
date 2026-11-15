@@ -1,11 +1,12 @@
 package com.personal.bookmark_backend.service;
 
-import com.personal.bookmark_backend.entity.Bookmark;
 import com.personal.bookmark_backend.entity.Folder;
 import com.personal.bookmark_backend.repository.BookmarkRepository;
 import com.personal.bookmark_backend.repository.FolderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
@@ -18,9 +19,11 @@ class FolderCoverUpdater {
         String imageUrl = bookmarkRepository.findTopByUserIdAndFolderIdOrderByCreatedAtDesc(
                 folder.getUserId(),
                 folder.getId()
-        ).map(Bookmark::getImageUrl).orElse(null);
+        ).map(BookmarkRepository.BookmarkCover::getImageUrl).orElse(null);
 
-        folder.setImageUrl(imageUrl);
-        folderRepository.save(folder);
+        if (!Objects.equals(folder.getImageUrl(), imageUrl)) {
+            folder.setImageUrl(imageUrl);
+            folderRepository.save(folder);
+        }
     }
 }

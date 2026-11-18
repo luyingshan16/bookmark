@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
@@ -42,7 +44,7 @@ public abstract class BaseTimeEntity {
     protected void onCreate() {
 
         // 取得目前時間
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
 
         // 設定建立時間
         createdAt = now;
@@ -57,6 +59,6 @@ public abstract class BaseTimeEntity {
     protected void onUpdate() {
 
         // 更新最後修改時間
-        updatedAt = LocalDateTime.now();
+        updatedAt = ApplicationTime.now();
     }
 }

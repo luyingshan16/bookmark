@@ -288,6 +288,7 @@ public class BookmarkController {
     @PostMapping("/folders/{folderId}/bookmarks")
     public ResponseEntity<BookmarkResponse> createBookmark(
             @PathVariable Long folderId,
+            @RequestHeader(value = "Idempotency-Key", required = false) java.util.UUID requestId,
             @Valid @RequestBody CreateBookmarkRequest request,
             Authentication authentication
     ) {
@@ -295,18 +296,7 @@ public class BookmarkController {
         Long userId = getUserId(authentication);
 
         // 建立收藏
-        Bookmark bookmark = bookmarkService.createBookmark(
-                userId,
-                folderId,
-                request.url(),
-                request.title(),
-                request.content(),
-                request.note(),
-                request.source(),
-                request.imageUrl(),
-                request.tags(),
-                request.addToDailyPicks()
-        );
+        Bookmark bookmark = bookmarkService.createBookmark(userId, folderId, request, requestId);
 
         BookmarkResponse response = bookmarkResponses.toResponse(userId, bookmark);
 
@@ -337,7 +327,8 @@ public class BookmarkController {
                 request.note(),
                 request.source(),
                 request.imageUrl(),
-                request.tags()
+                request.tags(),
+                request.updateFields()
         );
 
         return ResponseEntity.ok(bookmarkResponses.toResponse(userId, bookmark));

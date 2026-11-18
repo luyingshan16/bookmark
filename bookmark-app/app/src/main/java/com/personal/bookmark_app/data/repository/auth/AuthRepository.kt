@@ -2,6 +2,12 @@ package com.personal.bookmark_app.data.repository.auth
 
 internal class GoogleLinkRequiredException : RuntimeException()
 
+enum class RegistrationOutcome {
+    SIGNED_IN,
+    MANUAL_LOGIN_REQUIRED,
+    MANUAL_LOGIN_THROTTLED
+}
+
 interface AuthRepository {
 
     // 登入
@@ -22,7 +28,7 @@ interface AuthRepository {
     suspend fun verifyEmail(
         email: String,
         code: String
-    ): Result<Unit>
+    ): Result<RegistrationOutcome>
 
     // 重新寄送驗證碼
     suspend fun resendVerificationCode(

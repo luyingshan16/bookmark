@@ -32,7 +32,7 @@ class BookmarkMapperTest {
         var tags = List.of("旅行", "文章");
         var expected = new BookmarkResponse(
                 7L, 2L, "https://example.org", "標題", "內文", null, "OTHER",
-                "https://example.org/image.png", tags, createdAt, updatedAt
+                "https://example.org/image.png", tags, createdAt.plusHours(8), updatedAt.plusHours(8)
         );
 
         assertEquals(expected, mapper.toResponse(bookmark, tags));

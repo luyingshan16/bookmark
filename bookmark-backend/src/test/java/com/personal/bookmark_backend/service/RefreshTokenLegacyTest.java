@@ -24,7 +24,7 @@ class RefreshTokenLegacyTest {
 
     @Test
     void rotatesLegacyTokenAndPreservesAbsoluteDeadline() {
-        var old = legacyToken(LocalDateTime.now().minusDays(175));
+        var old = legacyToken(LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(175));
         when(tokens.save(any(RefreshToken.class))).thenAnswer(invocation -> {
             RefreshToken successor = invocation.getArgument(0);
             assertEquals(old.getCreatedAt().plusDays(180), successor.getAbsoluteExpiresAt());
@@ -40,15 +40,15 @@ class RefreshTokenLegacyTest {
 
     @Test
     void doesNotRotateExpiredLegacyToken() {
-        legacyToken(LocalDateTime.now().minusDays(181));
+        legacyToken(LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(181));
         assertNull(service.rotateRefreshToken(TOKEN, REQUEST_ID));
         verify(tokens, never()).save(any());
     }
 
     @Test
     void doesNotRestoreExpiredFiniteToken() {
-        var old = legacyToken(LocalDateTime.now().minusDays(10));
-        old.setExpiresAt(LocalDateTime.now().minusDays(1));
+        var old = legacyToken(LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(10));
+        old.setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(1));
         assertNull(service.rotateRefreshToken(TOKEN, REQUEST_ID));
         verify(tokens, never()).save(any());
     }

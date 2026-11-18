@@ -10,10 +10,11 @@ data class UpdateBookmarkRequest(
     val note: String?,
     val source: String,
     val imageUrl: String?,
-    val tags: List<String>
+    val tags: List<String>,
+    val updateFields: List<String>? = null
 )
 
-// 只替換這次編輯的欄位，其餘沿用原本的收藏資料。
+// 保留完整資料格式，但後端只寫入 updateFields 中這次實際編輯的欄位。
 internal fun BookmarkResponse.toUpdateRequest(
     title: String?,
     note: String?,
@@ -25,5 +26,10 @@ internal fun BookmarkResponse.toUpdateRequest(
     note = note ?: this.note,
     source = source ?: OTHER_SOURCE_CODE,
     imageUrl = imageUrl,
-    tags = tags ?: this.tags
+    tags = tags ?: this.tags,
+    updateFields = buildList {
+        if (title != null) add("title")
+        if (note != null) add("note")
+        if (tags != null) add("tags")
+    }
 )

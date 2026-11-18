@@ -18,7 +18,7 @@ class AvatarStorageServiceTest {
 
     @Test
     void rejectsFakeImageRegardlessOfDeclaredContentType() throws Exception {
-        var service = new AvatarStorageService(directory.toString());
+        var service = new AvatarStorageService(directory.toString(), "https://avatar.example.org");
         var upload = new MockMultipartFile("file", "avatar.png", "image/png", new byte[]{1, 2, 3});
 
         assertThrows(IllegalArgumentException.class, () -> service.store(upload));
@@ -29,7 +29,7 @@ class AvatarStorageServiceTest {
 
     @Test
     void detectsFormatFromImageAndStripsTrailingData() throws Exception {
-        var service = new AvatarStorageService(directory.toString());
+        var service = new AvatarStorageService(directory.toString(), "https://avatar.example.org");
         var source = new ByteArrayOutputStream();
         assertTrue(ImageIO.write(new BufferedImage(16, 12, BufferedImage.TYPE_INT_ARGB), "png", source));
         source.write(new byte[512]);
@@ -42,5 +42,33 @@ class AvatarStorageServiceTest {
 
         service.deletePrevious("https://example.com/uploads/avatars/" + name);
         assertFalse(Files.exists(directory.resolve(name)));
+    }
+
+    @Test
+    void rebasesExistingLocalFilesAndIgnoresMissingOrUnrecognizedLegacyUrls() throws Exception {
+        String name = "11111111-1111-1111-1111-111111111111.png";
+        var service = new AvatarStorageService(directory.toString(), "https://new.example.org/prefix/");
+        String legacy = "http://old.example.org/old-prefix/uploads/avatars/" + name;
+
+        assertNull(service.publicUrl(legacy));
+        Files.createFile(directory.resolve(name));
+        String expected = "https://new.example.org/prefix/uploads/avatars/" + name;
+        assertEquals(expected, service.publicUrl(legacy));
+        assertEquals(expected, service.publicUrl(name));
+        assertNull(service.publicUrl("https://old.example.org/images/" + name));
+        assertNull(service.publicUrl(legacy + "?external=true"));
+        assertNull(service.publicUrl("https://old.example.org/uploads/avatars/extra/" + name));
+        assertNull(service.publicUrl("../" + name));
+        service.deletePrevious("https://old.example.org/uploads/avatars/extra/" + name);
+        assertTrue(Files.exists(directory.resolve(name)));
+    }
+
+    @Test
+    void rejectsUnusablePublicBaseConfiguration() {
+        for (String url : new String[]{"//example.org", "ftp://example.org",
+                "https://user@example.org", "https://example.org/?query=1",
+                "https://example.org/#section", "https://example.org/a/../b"}) {
+            assertThrows(IllegalArgumentException.class, () -> new AvatarStorageService(directory.toString(), url), url);
+        }
     }
 }

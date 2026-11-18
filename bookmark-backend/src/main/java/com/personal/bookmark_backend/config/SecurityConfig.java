@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.config;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.dto.response.ErrorResponse;
 import com.personal.bookmark_backend.security.JwtAuthenticationFilter;
 
@@ -146,7 +148,7 @@ public class SecurityConfig {
         ErrorResponse errorResponse = new ErrorResponse(
                 status.value(),
                 message,
-                LocalDateTime.now()
+                ApplicationTime.toTaipei(ApplicationTime.now())
         );
 
         response.setStatus(status.value());

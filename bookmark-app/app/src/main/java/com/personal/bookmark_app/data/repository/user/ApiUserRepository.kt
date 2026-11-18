@@ -13,7 +13,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.HttpException
-import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
 class ApiUserRepository @Inject constructor(
@@ -50,11 +49,8 @@ class ApiUserRepository @Inject constructor(
             else -> error("僅支援 JPG、PNG 或 WebP 圖片")
         }
         val imageBytes = contentResolver.openInputStream(imageUri)
-            ?.use { it.readBytes() }
+            ?.readAvatarBytes()
             ?: error("無法讀取所選的圖片")
-
-        require(imageBytes.isNotEmpty()) { "所選圖片是空的" }
-        require(imageBytes.size <= 10 * 1024 * 1024) { "圖片大小不可超過 10 MB" }
 
         val (uploadExtension, uploadType, uploadBytes) = if (extension == "webp") {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -66,14 +62,15 @@ class ApiUserRepository @Inject constructor(
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                 ?: error("無法讀取所選的圖片")
             val png = try {
-                ByteArrayOutputStream().use {
-                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) { "無法轉換頭像圖片" }
+                LimitedAvatarOutputStream("處理後的圖片不可超過 10 MB").use {
+                    val compressed = bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+                    it.checkLimit()
+                    check(compressed) { "無法轉換頭像圖片" }
                     it.toByteArray()
                 }
             } finally {
                 bitmap.recycle()
             }
-            require(png.size <= 10 * 1024 * 1024) { "處理後的圖片不可超過 10 MB" }
             Triple("png", "image/png", png)
         } else {
             Triple(extension, mimeType, imageBytes)

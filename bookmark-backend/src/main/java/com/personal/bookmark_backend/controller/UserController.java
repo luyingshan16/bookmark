@@ -14,7 +14,6 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,7 +35,7 @@ public class UserController {
             Authentication authentication
     ) {
         User user = userProfileService.getProfile(userId(authentication));
-        return ResponseEntity.ok(userMapper.toResponse(user));
+        return profileResponse(user);
     }
 
     @PostMapping("/google")
@@ -49,7 +48,7 @@ public class UserController {
                 request.idToken(),
                 request.password()
         );
-        return ResponseEntity.ok(userMapper.toResponse(user));
+        return profileResponse(user);
     }
 
     @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -57,15 +56,11 @@ public class UserController {
             @RequestPart("file") MultipartFile file,
             Authentication authentication
     ) {
-        User user = userProfileService.updateAvatar(
-                userId(authentication),
-                file,
-                fileName -> ServletUriComponentsBuilder.fromCurrentContextPath()
-                        .path("/uploads/avatars/")
-                        .path(fileName)
-                        .toUriString()
-        );
-        return ResponseEntity.ok(userMapper.toResponse(user));
+        return profileResponse(userProfileService.updateAvatar(userId(authentication), file));
+    }
+
+    private ResponseEntity<UserProfileResponse> profileResponse(User user) {
+        return ResponseEntity.ok(userMapper.toResponse(user, userProfileService.avatarImageUrl(user)));
     }
 
     private Long userId(Authentication authentication) {

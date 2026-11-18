@@ -24,7 +24,7 @@ import com.personal.bookmark_app.ui.theme.BookmarkTextSecondary
 
 @Composable
 fun DailyPicksInsufficientState(
-    bookmarkCount: Int,
+    bookmarkCount: Long,
     onAddBookmarkClick: () -> Unit
 ) {
     val remainingCount = 3 - bookmarkCount

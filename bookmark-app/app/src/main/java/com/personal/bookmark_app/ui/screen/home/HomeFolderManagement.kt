@@ -341,7 +341,7 @@ private fun FolderDeletion(
 
     fun confirmDeletion() {
         when {
-            folder.count == 0 -> submitFromCurrentSheet { onDelete() }
+            folder.count == 0L -> submitFromCurrentSheet { onDelete() }
             action == FolderDeleteAction.MOVE_BOOKMARKS -> choosingDestination = true
             else -> submitFromCurrentSheet { onSubmitJob(FolderJobRequest(deleteBookmarks = true)) }
         }

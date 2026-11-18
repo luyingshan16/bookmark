@@ -15,8 +15,8 @@ class FolderCoverUpdater {
     private final FolderRepository folderRepository;
 
     void update(Folder folder) {
-        // 封面取自最新一筆收藏；沒有圖片時清空封面。
-        String imageUrl = bookmarkRepository.findTopByUserIdAndFolderIdOrderByCreatedAtDesc(
+        // 封面取自最新一筆收藏，同秒以較大 ID 優先；沒有圖片時清空封面。
+        String imageUrl = bookmarkRepository.findTopByUserIdAndFolderIdOrderByCreatedAtDescIdDesc(
                 folder.getUserId(),
                 folder.getId()
         ).map(BookmarkRepository.BookmarkCover::getImageUrl).orElse(null);

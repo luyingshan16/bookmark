@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -62,7 +64,7 @@ public class EmailVerificationCode {
     // 新增驗證碼紀錄時自動設定時間
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = ApplicationTime.now();
     }
 }
 

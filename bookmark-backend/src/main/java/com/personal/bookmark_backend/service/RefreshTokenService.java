@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.service;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.entity.RefreshToken;
 import com.personal.bookmark_backend.repository.RefreshTokenRepository;
 import com.personal.bookmark_backend.repository.UserRepository;
@@ -47,7 +49,7 @@ public class RefreshTokenService {
     public SessionToken createRefreshToken(Long userId) {
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
         return store(userId, null, now.plusDays(ABSOLUTE_DAYS), now, TOKEN_ENCODER.encodeToString(bytes));
     }
 
@@ -57,7 +59,7 @@ public class RefreshTokenService {
         RefreshToken token = lockToken(rawToken);
         if (token == null) return null;
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
         LocalDateTime absoluteExpiry = token.getAbsoluteExpiresAt();
         boolean legacy = absoluteExpiry == null && token.getSuccessorId() == null;
         if (legacy && token.getCreatedAt() != null) {
@@ -123,7 +125,7 @@ public class RefreshTokenService {
     @Transactional
     public void revokeRefreshToken(String rawToken) {
         RefreshToken token = lockToken(rawToken);
-        if (token != null) revokeFamily(token, LocalDateTime.now());
+        if (token != null) revokeFamily(token, ApplicationTime.now());
     }
 
     private void revokeFamily(RefreshToken token, LocalDateTime now) {
@@ -137,7 +139,7 @@ public class RefreshTokenService {
 
     @Transactional
     public void revokeAllUserRefreshTokens(Long userId) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
         refreshTokens.findAllByUserIdAndRevokedAtIsNull(userId)
                 .forEach(token -> token.setRevokedAt(now));
     }

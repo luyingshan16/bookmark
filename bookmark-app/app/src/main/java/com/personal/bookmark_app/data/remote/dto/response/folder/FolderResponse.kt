@@ -5,5 +5,5 @@ data class FolderResponse(
     val name: String,
     val imageUrl: String?,
     val isDefault: Boolean,
-    val bookmarkCount: Int = 0
+    val bookmarkCount: Long = 0
 )

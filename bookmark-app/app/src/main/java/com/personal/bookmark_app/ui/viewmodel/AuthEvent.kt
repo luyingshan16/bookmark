@@ -8,6 +8,8 @@ sealed interface AuthEvent {
 
     data object NavigateToVerifyEmail : AuthEvent
 
+    data class RegistrationRequiresLogin(val message: String) : AuthEvent
+
     data class ShowMessage(
         val message: String
     ) : AuthEvent

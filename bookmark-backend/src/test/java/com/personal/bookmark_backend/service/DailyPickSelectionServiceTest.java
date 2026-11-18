@@ -13,6 +13,13 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class DailyPickSelectionServiceTest {
+    @Test
+    void taipeiDayChangesAtSixAmRegardlessOfJvmZone() {
+        assertEquals(LocalDate.of(2026, 11, 16),
+                DailyPickSelectionService.selectionDateAt(Instant.parse("2026-11-16T21:59:59Z")));
+        assertEquals(LocalDate.of(2026, 11, 17),
+                DailyPickSelectionService.selectionDateAt(Instant.parse("2026-11-16T22:00:00Z")));
+    }
     BookmarkRepository books = mock(BookmarkRepository.class);
     DailyPickSelectionRepository rows = mock(DailyPickSelectionRepository.class);
     UserRepository users = mock(UserRepository.class);

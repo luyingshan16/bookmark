@@ -13,6 +13,7 @@ import jakarta.servlet.Filter;
 
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.*;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.mail.username=test@example.com"
 })
 class AuthControllerSecurityTest {
-    @Configuration
+    @TestConfiguration
     @EnableWebMvc
     @Import({
             AuthController.class, UserController.class, AuthMapperImpl.class, UserMapperImpl.class,
@@ -99,7 +100,7 @@ class AuthControllerSecurityTest {
     void setup() {
         reset(auth, googleAuth);
         reset(refreshTokens);
-        when(refreshTokens.existsActiveSession(1L, 42L)).thenReturn(true);
+        when(refreshTokens.existsActiveSession(eq(1L), eq(42L), any(java.time.LocalDateTime.class))).thenReturn(true);
         mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(security).build();
     }
 

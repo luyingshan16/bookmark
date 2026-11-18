@@ -21,9 +21,10 @@ public interface RefreshTokenRepository
     @Query("""
             select case when count(t) > 0 then true else false end from RefreshToken t
             where t.id = :id and t.userId = :userId and t.revokedAt is null
-              and t.expiresAt > current_timestamp and t.absoluteExpiresAt > current_timestamp
+              and t.expiresAt > :now and t.absoluteExpiresAt > :now
             """)
-    boolean existsActiveSession(@Param("id") Long id, @Param("userId") Long userId);
+    boolean existsActiveSession(@Param("id") Long id, @Param("userId") Long userId,
+                                @Param("now") java.time.LocalDateTime now);
 
     // 查詢指定使用者目前尚未撤銷的 Refresh Token
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

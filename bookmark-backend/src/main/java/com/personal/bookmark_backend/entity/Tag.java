@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -66,7 +68,7 @@ public class Tag {
     // 新增標籤之前自動設定建立時間
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = ApplicationTime.now();
     }
 }
 

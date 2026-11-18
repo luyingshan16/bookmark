@@ -7,10 +7,9 @@ import com.personal.bookmark_app.data.remote.PageLoader
 import com.personal.bookmark_app.data.remote.api.BookmarkApi
 import com.personal.bookmark_app.data.remote.api.FolderApi
 import com.personal.bookmark_app.data.remote.api.FolderNameRequest
-import com.personal.bookmark_app.data.remote.dto.request.bookmark.MoveBookmarkRequest
-import com.personal.bookmark_app.data.remote.dto.request.bookmark.toUpdateRequest
 import com.personal.bookmark_app.data.remote.dto.response.PageResponse
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkResponse
+import com.personal.bookmark_app.data.repository.BookmarkRepository
 import com.personal.bookmark_app.data.repository.FolderChanges
 import com.personal.bookmark_app.ui.screen.searchbookmark.BookmarkMoveSelection
 import com.personal.bookmark_app.ui.screen.searchbookmark.SearchBookmarkUiState
@@ -33,6 +32,7 @@ import javax.inject.Inject
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchBookmarkViewModel @Inject constructor(
     private val bookmarkApi: BookmarkApi,
+    private val bookmarkRepository: BookmarkRepository,
     private val folderApi: FolderApi,
     private val folderChanges: FolderChanges
 ) : ViewModel() {
@@ -139,13 +139,13 @@ class SearchBookmarkViewModel @Inject constructor(
         tags: List<String>? = null
     ) {
         changeBookmark("收藏更新失敗，請稍後再試。") {
-            bookmarkApi.updateBookmark(bookmark.id, bookmark.toUpdateRequest(title, note, tags))
+            bookmarkRepository.updateBookmark(bookmark, title, note, tags)
         }
     }
 
     fun deleteBookmark(bookmark: BookmarkResponse) {
         changeBookmark("收藏刪除失敗，請稍後再試。") {
-            bookmarkApi.deleteBookmark(bookmark.id)
+            bookmarkRepository.deleteBookmark(bookmark.id)
         }
     }
 
@@ -177,7 +177,7 @@ class SearchBookmarkViewModel @Inject constructor(
         if (selection.folders.none { it.id == destination }) return
         closeMoveSheet()
         changeBookmark("移動收藏失敗，請稍後再試。") {
-            bookmarkApi.moveBookmark(selection.bookmarkId, MoveBookmarkRequest(destination))
+            bookmarkRepository.moveBookmark(selection.bookmarkId, destination)
         }
     }
 
@@ -198,7 +198,6 @@ class SearchBookmarkViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 action()
-                folderChanges.notifyChanged()
                 _uiState.update { it.copy(mutationError = null) }
                 resetSourceCounts()
                 appliedFilter = appliedFilter.copy()

@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.service;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.entity.User;
 import com.personal.bookmark_backend.exception.ConflictException;
 import com.personal.bookmark_backend.exception.ForbiddenException;
@@ -121,7 +123,7 @@ public class GoogleAuthService {
         User user = new User();
         user.setGoogleSubject(account.subject());
         user.setEmail(account.email());
-        user.setEmailVerifiedAt(LocalDateTime.now());
+        user.setEmailVerifiedAt(ApplicationTime.now());
         userRepository.saveAndFlush(user);
         authService.createDefaultFolder(user.getId());
         return authService.issueSession(user);

@@ -11,6 +11,7 @@ import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -23,7 +24,8 @@ interface BookmarkApi {
     @POST("api/folders/{folderId}/bookmarks")
     suspend fun createBookmark(
         @Path("folderId") folderId: Long,
-        @Body request: CreateBookmarkRequest
+        @Body request: CreateBookmarkRequest,
+        @Header("Idempotency-Key") requestId: String? = null
     ): BookmarkResponse
 
     @GET("api/folders/{folderId}/bookmarks/page")

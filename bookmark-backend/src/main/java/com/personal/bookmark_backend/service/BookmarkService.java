@@ -1,5 +1,9 @@
 package com.personal.bookmark_backend.service;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+import com.personal.bookmark_backend.dto.request.bookmark.CreateBookmarkRequest;
+import com.personal.bookmark_backend.exception.ConflictException;
+
 import com.personal.bookmark_backend.entity.Bookmark;
 import com.personal.bookmark_backend.entity.BookmarkSource;
 import com.personal.bookmark_backend.entity.BookmarkTag;
@@ -14,12 +18,21 @@ import com.personal.bookmark_backend.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 
 import java.net.URI;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.UUID;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -32,6 +45,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class BookmarkService {
+    private static final JsonMapper FINGERPRINT_JSON = new JsonMapper();
+    private static final int CREATION_REQUEST_RETENTION_DAYS = 7;
 
     private final BookmarkRepository bookmarkRepository;
     private final BookmarkSourceRepository bookmarkSourceRepository;
@@ -39,6 +54,7 @@ public class BookmarkService {
     private final FolderCoverUpdater folderCoverUpdater;
     private final BookmarkTagRepository bookmarkTagRepository;
     private final TagRepository tagRepository;
+    private final JdbcTemplate jdbc;
 
     // 標籤操作交給 TagService 負責
     private final TagService tagService;
@@ -154,6 +170,59 @@ public class BookmarkService {
     // =====================================================
 
     @Transactional
+    public Bookmark createBookmark(Long userId, Long folderId, CreateBookmarkRequest request, UUID requestId) {
+        dailyPickSelectionService.lockUser(userId);
+        if (requestId == null) return createBookmarkUnderLock(userId, folderId, request);
+
+        String key = requestId.toString();
+        String fingerprint = creationFingerprint(folderId, request);
+        var previous = jdbc.query("""
+                select fingerprint, bookmark_id, expires_at from bookmark_create_requests
+                where user_id = ? and request_id = ?
+                """, (row, index) -> new CreationRecord(row.getString("fingerprint"), row.getLong("bookmark_id"),
+                        row.getObject("expires_at", LocalDateTime.class)),
+                userId, key).stream().findFirst();
+        if (previous.isPresent()) {
+            var saved = previous.get();
+            if (saved.expiresAt().isAfter(ApplicationTime.now())) {
+                if (!saved.fingerprint().equals(fingerprint)) {
+                    throw new ConflictException("此新增識別碼已用於不同收藏內容");
+                }
+                return bookmarkRepository.findByIdAndUserId(saved.bookmarkId(), userId)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.GONE, "原收藏已刪除，請重新開啟新增收藏"));
+            }
+            jdbc.update("delete from bookmark_create_requests where user_id = ? and request_id = ?", userId, key);
+        }
+
+        Bookmark bookmark = createBookmarkUnderLock(userId, folderId, request);
+        jdbc.update("""
+                insert into bookmark_create_requests (user_id, request_id, fingerprint, bookmark_id, expires_at)
+                values (?, ?, ?, ?, ?)
+                """, userId, key, fingerprint, bookmark.getId(), ApplicationTime.now().plusDays(CREATION_REQUEST_RETENTION_DAYS));
+        return bookmark;
+    }
+
+    private record CreationRecord(String fingerprint, long bookmarkId, LocalDateTime expiresAt) {}
+
+    private static String creationFingerprint(Long folderId, CreateBookmarkRequest request) {
+        // Keep the order fixed across deployments during the retry window.
+        Object[] fields = {folderId, request.url(), request.title(), request.content(), request.note(),
+                request.source(), request.imageUrl(), request.tags(), request.addToDailyPicks()};
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(FINGERPRINT_JSON.writeValueAsBytes(fields)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    public void purgeExpiredCreationRequests() {
+        jdbc.update("delete from bookmark_create_requests where expires_at <= ? limit 1000",
+                ApplicationTime.now());
+    }
+
+    @Transactional
     public Bookmark createBookmark(
             Long userId,
             Long folderId,
@@ -166,30 +235,35 @@ public class BookmarkService {
             List<String> tagNames,
             boolean addToDailyPicks
     ) {
+        return createBookmark(userId, folderId, new CreateBookmarkRequest(
+                url, title, content, note, source, imageUrl, tagNames, addToDailyPicks), null);
+    }
 
-        dailyPickSelectionService.lockUser(userId);
+    private Bookmark createBookmarkUnderLock(Long userId, Long folderId, CreateBookmarkRequest request) {
+        String url = request.url();
+        String source = request.source();
         // 確認目標收藏夾屬於目前使用者
         Folder folder = findUserFolder(userId, folderId);
 
         // 驗證必要欄位
         validateBookmark(url, source);
-        validateImageUrl(imageUrl);
+        validateImageUrl(request.imageUrl());
 
         Bookmark bookmark = new Bookmark();
 
         bookmark.setUserId(userId);
         bookmark.setFolderId(folder.getId());
         bookmark.setUrl(url.trim());
-        bookmark.setTitle(title);
-        bookmark.setContent(content);
-        bookmark.setNote(note);
+        bookmark.setTitle(request.title());
+        bookmark.setContent(request.content());
+        bookmark.setNote(request.note());
         bookmark.setSource(detectSource(url.trim(), source.trim()));
-        bookmark.setImageUrl(imageUrl);
+        bookmark.setImageUrl(request.imageUrl());
 
         // 儲存收藏，取得資料庫產生的 bookmarkId
         Bookmark savedBookmark = bookmarkRepository.save(bookmark);
 
-        if (addToDailyPicks) dailyPickSelectionService.includeBookmark(userId, savedBookmark);
+        if (request.addToDailyPicks()) dailyPickSelectionService.includeBookmark(userId, savedBookmark);
 
         // 建立收藏與標籤的關聯
         // 如果標籤不存在，TagService 會自動建立
@@ -197,7 +271,7 @@ public class BookmarkService {
                 userId,
                 folderId,
                 savedBookmark.getId(),
-                tagNames
+                request.tags()
         );
 
         // 更新收藏夾封面
@@ -228,28 +302,48 @@ public class BookmarkService {
             String imageUrl,
             List<String> tagNames
     ) {
+        return updateBookmark(userId, bookmarkId, url, title, content, note, source, imageUrl, tagNames, null);
+    }
+
+    @Transactional
+    public Bookmark updateBookmark(
+            Long userId, Long bookmarkId, String url, String title, String content,
+            String note, String source, String imageUrl, List<String> tagNames,
+            List<String> updateFields
+    ) {
+        Set<String> allowedFields = Set.of("url", "title", "content", "note", "source", "imageUrl", "tags");
+        if (updateFields != null && (updateFields.isEmpty() || updateFields.size() > allowedFields.size()
+                || updateFields.stream().anyMatch(field -> field == null || !allowedFields.contains(field)))) {
+            throw new IllegalArgumentException("更新欄位清單不正確");
+        }
+        Set<String> fields = updateFields == null ? allowedFields : new LinkedHashSet<>(updateFields);
+        if (updateFields != null && fields.contains("tags") && tagNames == null) {
+            throw new IllegalArgumentException("更新標籤時須提供清單，清空請傳入 []");
+        }
 
         dailyPickSelectionService.lockUser(userId);
         Bookmark bookmark = findUserBookmark(userId, bookmarkId);
 
-        validateBookmark(url, source);
-        validateImageUrl(imageUrl);
+        // 在取得寫入鎖後，以資料庫目前值補足未更新的欄位。
+        validateBookmark(fields.contains("url") ? url : bookmark.getUrl(),
+                fields.contains("source") ? source : bookmark.getSource());
+        if (fields.contains("imageUrl")) validateImageUrl(imageUrl);
 
-        bookmark.setUrl(url.trim());
-        bookmark.setTitle(title);
-        bookmark.setContent(content);
-        bookmark.setNote(note);
-        bookmark.setSource(source.trim());
-        bookmark.setImageUrl(imageUrl);
+        if (fields.contains("url")) bookmark.setUrl(url.trim());
+        if (fields.contains("title")) bookmark.setTitle(title);
+        if (fields.contains("content")) bookmark.setContent(content);
+        if (fields.contains("note")) bookmark.setNote(note);
+        if (fields.contains("source")) bookmark.setSource(source.trim());
+        if (fields.contains("imageUrl")) bookmark.setImageUrl(imageUrl);
 
         // 主動更新活動時間
-        bookmark.setUpdatedAt(LocalDateTime.now());
+        bookmark.setUpdatedAt(ApplicationTime.now());
 
-        Bookmark savedBookmark = bookmarkRepository.save(bookmark);
+        bookmarkRepository.save(bookmark);
 
         // 替換標籤關聯
         // 修改標籤也會更新 Bookmark.updatedAt
-        tagService.replaceBookmarkTags(
+        if (fields.contains("tags")) tagService.replaceBookmarkTags(
                 userId,
                 bookmark.getFolderId(),
                 bookmarkId,

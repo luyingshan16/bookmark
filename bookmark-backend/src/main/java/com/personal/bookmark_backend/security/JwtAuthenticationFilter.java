@@ -54,7 +54,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             // 如果目前尚未建立 Authentication
             if (SecurityContextHolder.getContext().getAuthentication() == null &&
-                    refreshTokens.existsActiveSession(identity.sessionId(), identity.userId())) {
+                    refreshTokens.existsActiveSession(identity.sessionId(), identity.userId(),
+                            com.personal.bookmark_backend.time.ApplicationTime.now())) {
 
                 // 建立使用者身分資訊
                 UsernamePasswordAuthenticationToken authentication =

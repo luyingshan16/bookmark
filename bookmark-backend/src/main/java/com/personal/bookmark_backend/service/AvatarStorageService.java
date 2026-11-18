@@ -26,11 +26,20 @@ public class AvatarStorageService {
             "[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\\.(?:jpg|png|webp)");
 
     private final Path storageDirectory;
+    private final String publicBaseUrl;
+    private static final String AVATAR_PATH = "/uploads/avatars/";
 
     public AvatarStorageService(
-            @Value("${bookmark.avatar.storage-directory:uploads/avatars}") String storageDirectory
+            @Value("${bookmark.avatar.storage-directory:uploads/avatars}") String storageDirectory,
+            @Value("${bookmark.avatar.public-base-url:http://localhost:8080}") String publicBaseUrl
     ) {
         this.storageDirectory = Path.of(storageDirectory).toAbsolutePath().normalize();
+        URI base = URI.create(publicBaseUrl);
+        if (!isHttpOrigin(base) || !base.normalize().equals(base)
+                || !base.getRawPath().matches("(?:/[A-Za-z0-9._~-]+)*/?")) {
+            throw new IllegalArgumentException("BOOKMARK_PUBLIC_BASE_URL must be an HTTP(S) URL with an optional path prefix");
+        }
+        this.publicBaseUrl = base.toASCIIString().replaceFirst("/$", "");
     }
 
     public String store(MultipartFile file) {
@@ -93,17 +102,38 @@ public class AvatarStorageService {
         return name != null && AVATAR_NAME.matcher(name).matches();
     }
 
-    void deletePrevious(String url) {
-        if (url == null) return;
-        String path;
+    public String publicUrl(String storedValue) {
+        String name = localFileName(storedValue);
+        if (name == null || !Files.isRegularFile(storageDirectory.resolve(name), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return null;
+        }
+        return publicBaseUrl + AVATAR_PATH + name;
+    }
+
+    void deletePrevious(String storedValue) {
+        delete(localFileName(storedValue));
+    }
+
+    private static String localFileName(String value) {
+        if (isAvatarFileName(value)) return value;
+        if (value == null) return null;
         try {
-            path = URI.create(url).getPath();
+            URI legacy = URI.create(value);
+            if (!isHttpOrigin(legacy) || !legacy.normalize().equals(legacy)) return null;
+            String path = legacy.getRawPath();
+            int fileStart = path.lastIndexOf('/') + 1;
+            if (fileStart == 0 || !path.substring(0, fileStart).endsWith(AVATAR_PATH)) return null;
+            String name = path.substring(fileStart);
+            return isAvatarFileName(name) ? name : null;
         } catch (IllegalArgumentException exception) {
-            return;
+            return null;
         }
-        if (path != null && path.contains("/uploads/avatars/")) {
-            delete(path.substring(path.lastIndexOf('/') + 1));
-        }
+    }
+
+    private static boolean isHttpOrigin(URI uri) {
+        return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                && uri.getHost() != null && (uri.getPort() == -1 || uri.getPort() > 0 && uri.getPort() <= 65535)
+                && uri.getRawUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null;
     }
 
     void delete(String fileName) {

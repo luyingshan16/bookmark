@@ -19,6 +19,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class BookmarkBatchJobs {
+    public static final int MAX_BATCH_IDS = 50_000;
     private static final Logger logger = LoggerFactory.getLogger(BookmarkBatchJobs.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -44,6 +45,12 @@ public class BookmarkBatchJobs {
     }
 
     private Status submitBatch(Long userId, String id, Operation operation, long source, long target, List<Long> ids) {
+        if (ids == null || ids.isEmpty() || ids.size() > MAX_BATCH_IDS) {
+            throw new IllegalArgumentException("每次須提供 1 至 50,000 筆收藏");
+        }
+        if (ids.stream().anyMatch(value -> value == null || value <= 0)) {
+            throw new IllegalArgumentException("收藏 ID 必須為正整數");
+        }
         users.lockUser(userId);
         var existing = find(userId, id);
         if (existing != null) return existing;

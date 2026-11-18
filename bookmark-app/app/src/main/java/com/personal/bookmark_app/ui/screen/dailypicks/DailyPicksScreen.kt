@@ -147,7 +147,7 @@ fun DailyPicksScreen(
                     // 狀態二：收藏不足 3 則
                     !uiState.isSufficient -> {
                         DailyPicksInsufficientState(
-                            bookmarkCount = totalBookmarkCount.toInt(),
+                            bookmarkCount = totalBookmarkCount,
                             onAddBookmarkClick = onAddBookmarkClick
                         )
                     }

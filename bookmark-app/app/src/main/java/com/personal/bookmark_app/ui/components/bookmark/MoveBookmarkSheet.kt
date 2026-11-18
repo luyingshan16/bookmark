@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MoveBookmarkSheet(
-    selectedCount: Int,
+    selectedCount: Long,
     folders: List<FolderResponse>,
     onDismiss: () -> Unit,
     onMove: (Long) -> Unit,

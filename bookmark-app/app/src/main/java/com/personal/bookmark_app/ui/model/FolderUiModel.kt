@@ -5,7 +5,7 @@ import com.personal.bookmark_app.data.remote.dto.response.folder.FolderResponse
 data class FolderUiModel(
     val id: Long,
     val title: String,
-    val count: Int,
+    val count: Long,
     val imageUrl: String,
     val latestSavedAt: String?
 )

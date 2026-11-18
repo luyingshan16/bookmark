@@ -11,9 +11,9 @@ import org.mapstruct.ReportingPolicy;
 
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface UserMapper {
-    @Mapping(target = "avatarImageUrl", source = "avatarUrl")
-    @Mapping(target = "googleLinked", source = "googleSubject", qualifiedByName = "hasGoogleAccount")
-    UserProfileResponse toResponse(User user);
+    @Mapping(target = "avatarImageUrl", source = "avatarImageUrl")
+    @Mapping(target = "googleLinked", source = "user.googleSubject", qualifiedByName = "hasGoogleAccount")
+    UserProfileResponse toResponse(User user, String avatarImageUrl);
 
     @Named("hasGoogleAccount")
     default boolean hasGoogleAccount(String googleSubject) {

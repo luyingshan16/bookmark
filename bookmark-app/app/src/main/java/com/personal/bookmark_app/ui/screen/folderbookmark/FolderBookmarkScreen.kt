@@ -437,7 +437,7 @@ fun FolderBookmarkScreen(
 
     if (bookmarkIdsToMove.isNotEmpty()) {
         MoveBookmarkSheet(
-            selectedCount = bookmarkIdsToMove.size,
+            selectedCount = bookmarkIdsToMove.size.toLong(),
             folders = availableFolders,
             onDismiss = { bookmarkIdsToMove = emptyList() },
             onMove = ::submitMove,

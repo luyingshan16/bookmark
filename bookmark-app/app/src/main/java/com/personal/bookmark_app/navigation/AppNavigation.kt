@@ -236,6 +236,13 @@ private fun SessionNavigation(
                     navController.navigate(Screen.VERIFY_EMAIL)
                 }
 
+                is AuthEvent.RegistrationRequiresLogin -> {
+                    if (!navController.popBackStack(Screen.LOGIN, inclusive = false)) {
+                        navController.navigate(Screen.LOGIN) { launchSingleTop = true }
+                    }
+                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+                }
+
                 // 顯示錯誤或提示訊息
                 is AuthEvent.ShowMessage -> {
                     Toast.makeText(

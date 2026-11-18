@@ -103,4 +103,21 @@ class BookmarkSearchTransactionTest extends BookmarkTransactionTestSupport {
         assertEquals(List.of(note.getId()), service.searchBookmarkSlice(userId, "org/no", null, PageRequest.of(0, 20))
                 .getContent().stream().map(Bookmark::getId).toList());
     }
+
+    @Test
+    void searchesTextWithoutAnyMatchingTagAndKeepsTagMatchesFilteredBySource() {
+        var tagged = service.createBookmark(userId, folderId, "https://www.example.com/tagged",
+                "Tagged", null, null, "OTHER", null, List.of("旅遊", "旅行"), false);
+        var text = service.createBookmark(userId, folderId, "https://example.org/text",
+                "中文片段", null, null, "OTHER", null, List.of(), false);
+        var page = PageRequest.of(0, 1);
+
+        assertEquals(List.of(text.getId()), service.searchBookmarkSlice(userId, "文片", "other", page)
+                .getContent().stream().map(Bookmark::getId).toList());
+        var tagMatch = service.searchBookmarkSlice(userId, "旅_", "example", page);
+        assertEquals(List.of(tagged.getId()), tagMatch.getContent().stream().map(Bookmark::getId).toList());
+        assertFalse(tagMatch.hasNext());
+        assertTrue(service.searchBookmarkSlice(userId, "旅%", "other", page).isEmpty());
+        assertTrue(service.searchBookmarkSlice(userId, "完全沒有命中", null, page).isEmpty());
+    }
 }

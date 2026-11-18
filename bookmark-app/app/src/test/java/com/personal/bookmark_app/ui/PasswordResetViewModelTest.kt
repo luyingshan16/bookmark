@@ -1,6 +1,7 @@
 package com.personal.bookmark_app.ui
 
 import com.personal.bookmark_app.data.repository.auth.AuthRepository
+import com.personal.bookmark_app.data.repository.auth.RegistrationOutcome
 import com.personal.bookmark_app.ui.viewmodel.AuthViewModel
 import com.personal.bookmark_app.ui.screen.forgotpassword.PasswordResetStep
 import com.personal.bookmark_app.ui.screen.resetpassword.ResetPasswordUiState
@@ -199,7 +200,7 @@ class PasswordResetViewModelTest {
             Result.success(Unit)
 
         override suspend fun register(email: String, password: String) = Result.success(Unit)
-        override suspend fun verifyEmail(email: String, code: String) = Result.success(Unit)
+        override suspend fun verifyEmail(email: String, code: String) = Result.success(RegistrationOutcome.SIGNED_IN)
         override suspend fun resendVerificationCode(email: String): Result<Unit> {
             registrationResends++
             return Result.success(Unit)

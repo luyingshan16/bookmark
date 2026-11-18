@@ -1,8 +1,12 @@
 package com.personal.bookmark_backend.exception;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.dto.response.ErrorResponse;
 
 import jakarta.validation.ConstraintViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -10,14 +14,39 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
+import java.util.Locale;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch() {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "請求參數格式不正確");
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter() {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "缺少必填參數");
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart() {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "缺少必填的上傳內容");
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadTooLarge() {
+        return buildErrorResponse(HttpStatus.CONTENT_TOO_LARGE, "檔案或上傳請求超過大小限制");
+    }
 
     @ExceptionHandler(GoogleLinkRequiredException.class)
     public ResponseEntity<ErrorResponse> handleGoogleLinkRequired(GoogleLinkRequiredException exception) {
@@ -26,7 +55,7 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(
                         HttpStatus.CONFLICT.value(),
                         exception.getMessage(),
-                        LocalDateTime.now()
+                        ApplicationTime.toTaipei(ApplicationTime.now())
                 ));
     }
 
@@ -190,14 +219,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleException(
             Exception exception
     ) {
+        if (isFolderNameConflict(exception)) {
+            return buildErrorResponse(HttpStatus.CONFLICT, "收藏夾名稱已經存在");
+        }
 
-        // 實際錯誤細節留在伺服器端，不直接回傳給前端
-        exception.printStackTrace();
+        log.atError().addKeyValue("exceptionType", exception.getClass().getName())
+                .setCause(exception).log("Unhandled API exception");
 
         return buildErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "伺服器發生未預期的錯誤，請稍後再試"
         );
+    }
+
+    private boolean isFolderNameConflict(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException violation
+                    && violation.getKind() == org.hibernate.exception.ConstraintViolationException.ConstraintKind.UNIQUE
+                    && violation.getConstraintName() != null) {
+                String name = violation.getConstraintName().toLowerCase(Locale.ROOT);
+                name = name.substring(name.lastIndexOf('.') + 1);
+                return name.equals("uq_folder_name") || name.equals("uk_folders_user_name")
+                        || name.matches("uk_folders_user_name_index_[a-z0-9]+");
+            }
+        }
+        return false;
     }
 
 
@@ -213,7 +259,7 @@ public class GlobalExceptionHandler {
         ErrorResponse response = new ErrorResponse(
                 status.value(),
                 message,
-                LocalDateTime.now()
+                ApplicationTime.toTaipei(ApplicationTime.now())
         );
 
         return ResponseEntity

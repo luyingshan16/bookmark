@@ -1,10 +1,11 @@
+import com.android.build.api.variant.BuildConfigField
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 
 plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -23,10 +24,9 @@ android {
         val googleWebClientId = providers.gradleProperty("GOOGLE_WEB_CLIENT_ID")
             .orElse(providers.environmentVariable("GOOGLE_WEB_CLIENT_ID"))
             .orElse("").get()
+        // Development default for Debug and Benchmark. Release overrides this field below.
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -56,6 +56,36 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        val releaseUrl = providers.gradleProperty("BOOKMARK_RELEASE_API_BASE_URL")
+            .orElse(providers.environmentVariable("BOOKMARK_RELEASE_API_BASE_URL"))
+            .orElse("")
+            .map { value ->
+                require(value.isNotBlank()) {
+                    "Release requires BOOKMARK_RELEASE_API_BASE_URL (stable HTTPS URL ending in /)."
+                }
+                val uri = runCatching { URI(value) }.getOrNull()
+                val host = uri?.host?.lowercase().orEmpty()
+                val labels = host.split('.')
+                val dnsHost = labels.size >= 2 && host.length <= 253 &&
+                    labels.last().firstOrNull()?.isLetter() == true &&
+                    labels.all { it.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) }
+                require(uri != null && uri.scheme.equals("https", ignoreCase = true) && dnsHost &&
+                    host != "trycloudflare.com" && !host.endsWith(".trycloudflare.com") &&
+                    !host.endsWith(".localhost") && !host.endsWith(".local") &&
+                    (uri.port == -1 || uri.port in 1..65535) && uri.rawUserInfo == null &&
+                    uri.rawQuery == null && uri.rawFragment == null && uri.rawPath.endsWith('/')) {
+                    "BOOKMARK_RELEASE_API_BASE_URL must use HTTPS with a stable DNS hostname and end in / (no credentials, query or fragment)."
+                }
+                BuildConfigField("String", "\"${uri.toASCIIString()}\"", "Release API base URL")
+            }
+        // Resolve only when Gradle needs the Release BuildConfig, keeping IDE sync and Debug usable.
+        checkNotNull(variant.buildConfigFields) { "Release requires BuildConfig generation." }
+            .put("API_BASE_URL", releaseUrl)
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_11
@@ -73,12 +103,11 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.landscapist.coil3)
@@ -92,10 +121,4 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("org.jsoup:jsoup:1.24.1")
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
-    debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
 }

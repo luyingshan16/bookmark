@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.personal.bookmark_app.data.repository.auth.AuthRepository
 import com.personal.bookmark_app.data.repository.auth.GoogleLinkRequiredException
+import com.personal.bookmark_app.data.repository.auth.RegistrationOutcome
 import com.personal.bookmark_app.ui.screen.forgotpassword.ForgotPasswordUiState
 import com.personal.bookmark_app.ui.screen.login.LoginUiState
 import com.personal.bookmark_app.ui.screen.register.RegisterUiState
@@ -312,18 +313,27 @@ class AuthViewModel(
                 it.copy(isLoading = true, errorMessage = null)
             }
 
-            val result = authRepository.verifyEmail(
-                email = state.email,
-                code = state.verificationCode
-            )
-
-            _verifyEmailUiState.update {
-                it.copy(isLoading = false)
+            val result = try {
+                authRepository.verifyEmail(email = state.email, code = state.verificationCode)
+            } finally {
+                _verifyEmailUiState.update { it.copy(isLoading = false) }
             }
 
-            result.onSuccess {
+            result.onSuccess { outcome ->
                 registrationCountdownJob?.cancel()
-                _authEvent.emit(AuthEvent.Authenticated)
+                if (outcome == RegistrationOutcome.SIGNED_IN) {
+                    _authEvent.emit(AuthEvent.Authenticated)
+                } else {
+                    _verifyEmailUiState.value = VerifyEmailUiState()
+                    resetRegisterState()
+                    _loginUiState.value = LoginUiState(email = state.email.trim())
+                    val message = if (outcome == RegistrationOutcome.MANUAL_LOGIN_THROTTLED) {
+                        "帳號已建立，請稍後使用原密碼登入"
+                    } else {
+                        "帳號已建立，請使用原密碼登入"
+                    }
+                    _authEvent.emit(AuthEvent.RegistrationRequiresLogin(message))
+                }
             }.onFailure { error ->
                 _verifyEmailUiState.update {
                     it.copy(

@@ -211,14 +211,14 @@ public class FolderService {
     private void moveBookmarks(Long userId, Long sourceFolderId, Long targetFolderId) {
         while (true) {
             // 搬完的收藏會從來源移除，每次可以從第一頁接著搬。
-            var bookmarks = bookmarkRepository.findByUserIdAndFolderIdOrderByCreatedAtDescIdDesc(
+            var bookmarkIds = bookmarkRepository.findFolderMoveBatchIds(
                     userId, sourceFolderId, MOVE_BATCH);
-            if (bookmarks.isEmpty()) break;
-            tagService.moveBookmarkTags(userId, bookmarks, targetFolderId);
+            if (bookmarkIds.isEmpty()) break;
+            tagService.moveFolderBookmarkBatch(userId, sourceFolderId, targetFolderId, bookmarkIds);
             // 送出 SQL 並釋放已搬完實體的追蹤狀態，資料仍由外層交易一併提交。
             entityManager.flush();
             entityManager.clear();
-            if (bookmarks.size() < MOVE_BATCH.getPageSize()) break;
+            if (bookmarkIds.size() < MOVE_BATCH.getPageSize()) break;
         }
         folderCoverUpdater.update(findUserFolder(userId, targetFolderId));
     }

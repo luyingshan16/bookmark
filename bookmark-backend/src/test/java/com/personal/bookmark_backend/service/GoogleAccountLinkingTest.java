@@ -117,7 +117,7 @@ class GoogleAccountLinkingTest {
         );
         assertTrue(registrationError.getMessage().contains("請選擇 Google 登入"));
         assertTrue(loginError.getMessage().contains("請選擇 Google 登入"));
-        assertEquals("此 Email 尚未註冊，請先建立帳號。", unknownEmailError.getMessage());
+        assertEquals(wrongPasswordError.getMessage(), unknownEmailError.getMessage());
         assertEquals(wrongPasswordError.getMessage(), loginError.getMessage());
         assertThrows(ForbiddenException.class, () -> google.link(id, token, PASSWORD));
         assertEquals(id, google.login(token, null).userId());
@@ -141,7 +141,7 @@ class GoogleAccountLinkingTest {
     private User passwordAccount() {
         User user = new User();
         user.setEmail(newEmail());
-        user.setEmailVerifiedAt(LocalDateTime.now().withNano(0));
+        user.setEmailVerifiedAt(LocalDateTime.now(java.time.ZoneOffset.UTC).withNano(0));
         user.setPasswordHash(encoder.encode(PASSWORD));
         return users.save(user);
     }

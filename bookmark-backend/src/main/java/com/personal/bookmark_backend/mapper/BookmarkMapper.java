@@ -14,5 +14,7 @@ import org.mapstruct.ReportingPolicy;
 public interface BookmarkMapper {
     // 標籤由 Controller 查好後傳入，其餘欄位依名稱自動對應。
     @Mapping(target = "tags", source = "tagNames")
+    @Mapping(target = "createdAt", expression = "java(com.personal.bookmark_backend.time.ApplicationTime.toTaipei(bookmark.getCreatedAt()))")
+    @Mapping(target = "updatedAt", expression = "java(com.personal.bookmark_backend.time.ApplicationTime.toTaipei(bookmark.getUpdatedAt()))")
     BookmarkResponse toResponse(Bookmark bookmark, List<String> tagNames);
 }

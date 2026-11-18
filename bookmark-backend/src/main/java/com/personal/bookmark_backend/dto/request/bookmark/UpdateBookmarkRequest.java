@@ -29,7 +29,11 @@ public record UpdateBookmarkRequest(
         String imageUrl,
 
         @Size(max = 50, message = "每筆收藏最多 50 個標籤")
-        List<@Size(max = 30, message = "每個標籤名稱不能超過 30 個字") String> tags
+        List<@Size(max = 30, message = "每個標籤名稱不能超過 30 個字") String> tags,
+
+        // null 保留舊版全欄位更新；新版只寫入清單內的欄位。
+        @Size(min = 1, max = 7, message = "更新欄位須為 1 至 7 個")
+        List<String> updateFields
 
 ) {
 }

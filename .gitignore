@@ -1,5 +1,6 @@
-# Gradle / Android build output
+# Gradle, Kotlin and Android build output
 .gradle/
+.kotlin/
 **/build/
 **/target/
 local.properties
@@ -13,10 +14,12 @@ local.properties
 .DS_Store
 Thumbs.db
 
-# Local configuration and secrets
+# Local environment files and private signing material
 .env
 .env.*
 !.env.example
+/bookmark-app/**/key.properties
+/bookmark-app/**/keystore.properties
 *.jks
 *.keystore
 *.pem
@@ -30,4 +33,7 @@ Thumbs.db
 *.db
 mysql-data/
 /data/
+
+# Avatar files, relative to the backend process working directory
+/uploads/
 /bookmark-backend/uploads/

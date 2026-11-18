@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -108,17 +109,19 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
                    or lower(b.source) like lower(concat('%', :query, '%'))
             """;
 
-    String SEARCH_TAG_FILTER = """
-            bt.id.tagId = t.id and bt.userId = :userId
-            and lower(t.name) like lower(concat('%', :query, '%'))
-            """;
+    String SEARCH_TAG_NAME_MATCH = "lower(t.name) like lower(concat('%', :query, '%'))";
+    String SEARCH_TAG_FILTER = "bt.id.tagId = t.id and bt.userId = :userId and " + SEARCH_TAG_NAME_MATCH;
 
-    // 依排序逐筆比對標籤，找到足夠結果就能結束分頁查詢。
+    // 先確認此帳號有命中的標籤。找到足夠結果後仍可提早結束分頁查詢。
     String SEARCH_PAGE_FILTER = "from Bookmark b " + SEARCH_TEXT_FILTER + """
-                   or exists (
+                   or (
+                       exists (
+                           select 1 from Tag t where t.userId = :userId and
+            """ + SEARCH_TAG_NAME_MATCH + """
+                       ) and exists (
                        select 1 from BookmarkTag bt, Tag t
                        where bt.id.bookmarkId = b.id and
-            """ + SEARCH_TAG_FILTER + "))";
+            """ + SEARCH_TAG_FILTER + ")))";
 
     // 統計要掃描全部候選收藏，先彙總並去重標籤命中。
     String SEARCH_COUNT_FILTER = """
@@ -176,15 +179,25 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
     // 查詢指定使用者的某一筆收藏
     Optional<Bookmark> findByIdAndUserId(Long id, Long userId);
 
-    // 查詢指定收藏夾中最新建立的收藏
-    // 用於取得收藏夾封面應該顯示的最新收藏圖片
-    List<Bookmark> findByUserIdAndFolderIdOrderByCreatedAtDescIdDesc(Long userId, Long folderId, Pageable pageable);
+    @Query("""
+            select b.id from Bookmark b where b.userId = :userId and b.folderId = :folderId
+            order by b.createdAt desc, b.id desc
+            """)
+    List<Long> findFolderMoveBatchIds(Long userId, Long folderId, Pageable pageable);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Bookmark b set b.folderId = :targetFolderId, b.updatedAt = :updatedAt
+            where b.userId = :userId and b.folderId = :sourceFolderId and b.id in :ids
+            """)
+    int moveFolderBatch(Long userId, Long sourceFolderId, Long targetFolderId,
+                        List<Long> ids, LocalDateTime updatedAt);
 
     interface BookmarkCover {
         String getImageUrl();
     }
 
-    Optional<BookmarkCover> findTopByUserIdAndFolderIdOrderByCreatedAtDesc(
+    Optional<BookmarkCover> findTopByUserIdAndFolderIdOrderByCreatedAtDescIdDesc(
             Long userId,
             Long folderId
     );

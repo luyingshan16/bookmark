@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.service;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.entity.EmailVerificationCode;
 import com.personal.bookmark_backend.entity.Folder;
 import com.personal.bookmark_backend.entity.PasswordResetCode;
@@ -15,6 +17,7 @@ import com.personal.bookmark_backend.repository.PasswordResetCodeRepository;
 import com.personal.bookmark_backend.repository.UserRepository;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.PostConstruct;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
@@ -55,7 +58,6 @@ public class AuthService {
     private static final String GOOGLE_LOGIN_HINT = "若你原本使用 Google 建立帳號，請選擇 Google 登入";
     private static final String REGISTERED_EMAIL =
             "此 Email 已經註冊，請用原本的方式登入。" + GOOGLE_LOGIN_HINT;
-    private static final String UNREGISTERED_EMAIL = "此 Email 尚未註冊，請先建立帳號。";
     private static final String INVALID_LOGIN = "Email 或密碼錯誤。" + GOOGLE_LOGIN_HINT;
 
     private final UserRepository userRepository;
@@ -72,6 +74,15 @@ public class AuthService {
     private String senderEmail;
 
     private final SecureRandom secureRandom = new SecureRandom();
+    private String dummyPasswordHash;
+
+    @PostConstruct
+    void initializeDummyPasswordHash() {
+        // 啟動時只產生一次，沿用正式密碼的演算法與成本。
+        byte[] bytes = new byte[32];
+        secureRandom.nextBytes(bytes);
+        dummyPasswordHash = passwordEncoder.encode(Base64.getEncoder().encodeToString(bytes));
+    }
 
     private final PasswordResetCodeRepository passwordResetCodeRepository;
     private final PasswordResetRateLimiter passwordResetRateLimiter;
@@ -99,14 +110,14 @@ public class AuthService {
 
         String normalizedEmail = normalizeEmail(email);
 
-        // 檢查 Email 是否已經註冊
+        // 註冊流程保留「已有帳號」導引；這是 UX 取捨，此入口仍會透露帳號存在性。
         if (userRepository.existsByEmail(normalizedEmail)) {
             throw new ConflictException(
                     REGISTERED_EMAIL
             );
         }
 
-        LocalDateTime resendCutoff = LocalDateTime.now().minusSeconds(RESEND_SECONDS);
+        LocalDateTime resendCutoff = ApplicationTime.now().minusSeconds(RESEND_SECONDS);
         boolean recentlySent = emailVerificationCodeRepository
                 .findTopByEmailOrderByCreatedAtDescIdDesc(normalizedEmail)
                 .map(code -> code.getCreatedAt().isAfter(resendCutoff))
@@ -127,7 +138,7 @@ public class AuthService {
 
         code.setEmail(normalizedEmail);
         code.setCodeHash(codeHash);
-        code.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        code.setExpiresAt(ApplicationTime.now().plusMinutes(10));
         code.setVerifiedAt(null);
 
         emailVerificationCodeRepository.save(code);
@@ -181,7 +192,7 @@ public class AuthService {
                                 )
                         );
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
 
         // 確認驗證碼尚未使用
         if (savedCode.getVerifiedAt() != null) {
@@ -251,29 +262,31 @@ public class AuthService {
             throw new UnauthorizedException(INVALID_LOGIN);
         }
 
-        User user = userRepository.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new UnauthorizedException(UNREGISTERED_EMAIL));
-
-        userRepository.lockById(user.getId())
-                .orElseThrow(() -> new UnauthorizedException(UNREGISTERED_EMAIL));
-        entityManager.refresh(user, LockModeType.PESSIMISTIC_WRITE);
-
-        // 確認 Email 已經驗證
-        if (user.getEmailVerifiedAt() == null) {
-            throw new ForbiddenException(
-                    "請先完成 Email 驗證"
-            );
+        User user = userRepository.findByEmail(normalizedEmail).orElse(null);
+        if (user == null) {
+            passwordEncoder.matches(password, dummyPasswordHash);
+            throw new UnauthorizedException(INVALID_LOGIN);
         }
 
-        // 驗證密碼
-        if (user.getPasswordHash() == null
-                || !passwordEncoder.matches(
-                password,
-                user.getPasswordHash()
-        )) {
+        if (userRepository.lockById(user.getId()).isEmpty()) {
+            passwordEncoder.matches(password, dummyPasswordHash);
+            throw new UnauthorizedException(INVALID_LOGIN);
+        }
+        entityManager.refresh(user, LockModeType.PESSIMISTIC_WRITE);
+
+        // Google-only 帳號也執行相同成本的比對，但絕不接受 dummy 密碼。
+        String passwordHash = user.getPasswordHash();
+        boolean matches = passwordEncoder.matches(password,
+                passwordHash == null ? dummyPasswordHash : passwordHash);
+        if (passwordHash == null || !matches) {
             throw new UnauthorizedException(
                     INVALID_LOGIN
             );
+        }
+
+        // 只有密碼正確後，才提示尚未驗證 Email。
+        if (user.getEmailVerifiedAt() == null) {
+            throw new ForbiddenException("請先完成 Email 驗證");
         }
 
         return issueSession(user);
@@ -523,7 +536,7 @@ public class AuthService {
         LocalDateTime expiresAt = saved.getExpiresAt();
         // 從到期時間倒推上次發碼時間，確認已經過 60 秒。
         if (expiresAt != null && expiresAt.minusMinutes(RESET_CODE_MINUTES)
-                .plusSeconds(RESEND_SECONDS).isAfter(LocalDateTime.now())) {
+                .plusSeconds(RESEND_SECONDS).isAfter(ApplicationTime.now())) {
             return;
         }
 
@@ -534,7 +547,7 @@ public class AuthService {
 
         saved.setUserId(user.getId());
         saved.setCodeHash(passwordEncoder.encode(code));
-        saved.setExpiresAt(LocalDateTime.now().plusMinutes(RESET_CODE_MINUTES));
+        saved.setExpiresAt(ApplicationTime.now().plusMinutes(RESET_CODE_MINUTES));
         saved.setAttempts(0);
         saved.setVerifiedAt(null);
         saved.setResetTokenHash(null);
@@ -554,7 +567,7 @@ public class AuthService {
             return null;
         }
         PasswordResetCode saved = passwordResetCodeRepository.findByUserId(user.getId()).orElse(null);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = ApplicationTime.now();
         if (saved == null || saved.getVerifiedAt() != null
                 || saved.getAttempts() >= MAX_RESET_ATTEMPTS || !saved.getExpiresAt().isAfter(now)) {
             return null;
@@ -586,7 +599,7 @@ public class AuthService {
         String currentHash = saved.getResetTokenHash();
         LocalDateTime expiresAt = saved.getResetTokenExpiresAt();
         if (saved.getVerifiedAt() == null || currentHash == null
-                || expiresAt == null || !expiresAt.isAfter(LocalDateTime.now())
+                || expiresAt == null || !expiresAt.isAfter(ApplicationTime.now())
                 || !MessageDigest.isEqual(
                 tokenHash.getBytes(StandardCharsets.UTF_8),
                 currentHash.getBytes(StandardCharsets.UTF_8)

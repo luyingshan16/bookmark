@@ -23,9 +23,11 @@
 # Preserve the API's JSON keys and DTOs instantiated through Gson reflection.
 -keep,allowoptimization,allowobfuscation class com.personal.bookmark_app.data.remote.dto.**
 -keepclassmembers,allowoptimization class com.personal.bookmark_app.data.remote.dto.** {
+    <init>();
     !static !transient <fields>;
 }
 -keep,allowoptimization,allowobfuscation class com.personal.bookmark_app.data.remote.api.*Request,com.personal.bookmark_app.data.remote.api.*Response,com.personal.bookmark_app.data.remote.api.*Status,com.personal.bookmark_app.data.remote.api.*Result
 -keepclassmembers,allowoptimization class com.personal.bookmark_app.data.remote.api.*Request,com.personal.bookmark_app.data.remote.api.*Response,com.personal.bookmark_app.data.remote.api.*Status,com.personal.bookmark_app.data.remote.api.*Result {
+    <init>();
     !static !transient <fields>;
 }

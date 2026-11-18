@@ -14,7 +14,6 @@ import okhttp3.Response
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.coroutines.resumeWithException
 
@@ -34,10 +33,7 @@ internal class BookmarkPreviewUnavailableException(message: String) : IllegalSta
 class BookmarkMetadataParser internal constructor(private val client: OkHttpClient) {
     // Use a separate client so the API bearer token is never sent to third-party sites.
     @Inject
-    constructor() : this(
-        OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS).followRedirects(true).build()
-    )
+    constructor() : this(publicPreviewClient())
 
     suspend fun parse(url: String): BookmarkMetadata {
         require(url.toHttpUrlOrNull() != null) { "網址格式不正確" }

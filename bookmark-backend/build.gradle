@@ -43,6 +43,13 @@ dependencies {
     testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
+tasks.named('processTestResources') {
+    from('db/schema.sql') {
+        into 'db'
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'user.timezone', providers.gradleProperty('testTimezone').getOrElse('UTC')
 }

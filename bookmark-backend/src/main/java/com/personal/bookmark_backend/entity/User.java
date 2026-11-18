@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 @Setter
 @NoArgsConstructor
 public class User extends BaseTimeEntity {
+    public static final int MAX_AVATAR_URL_LENGTH = 2048;
 
     // 主鍵：使用者 ID
     @Id
@@ -49,7 +50,7 @@ public class User extends BaseTimeEntity {
     // 使用者頭像圖片網址，尚未設定頭像時允許 NULL
     @Column(
             name = "avatar_url",
-            length = 2048
+            length = MAX_AVATAR_URL_LENGTH
     )
     private String avatarUrl;
 

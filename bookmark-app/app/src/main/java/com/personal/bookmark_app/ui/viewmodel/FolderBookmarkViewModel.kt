@@ -280,6 +280,10 @@ class FolderBookmarkViewModel @Inject constructor(
     ) {
         val selected = ids.distinct()
         if (selected.isEmpty()) return
+        if (selected.size > 50_000) {
+            _state.value = _state.value.copy(error = "每次最多操作 50,000 筆收藏")
+            return
+        }
         val sessionId = checkNotNull(preferences.sessionTokens()?.sessionId)
         val jobId = UUID.randomUUID().toString()
         val selectedIds = selected.map(String::toLong)

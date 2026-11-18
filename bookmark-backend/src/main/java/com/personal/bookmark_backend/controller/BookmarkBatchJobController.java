@@ -63,11 +63,11 @@ public class BookmarkBatchJobController {
     public record Request(
             @NotNull @Positive Long sourceFolderId,
             @NotNull @Positive Long targetFolderId,
-            @NotEmpty @Size(max = 50000) List<@NotNull @Positive Long> ids
+            @NotEmpty @Size(max = BookmarkBatchJobs.MAX_BATCH_IDS, message = "每次最多操作 50,000 筆收藏") List<@NotNull @Positive Long> ids
     ) {}
 
     public record DeleteRequest(
             @NotNull @Positive Long sourceFolderId,
-            @NotEmpty List<@NotNull @Positive Long> ids
+            @NotEmpty @Size(max = BookmarkBatchJobs.MAX_BATCH_IDS, message = "每次最多操作 50,000 筆收藏") List<@NotNull @Positive Long> ids
     ) {}
 }

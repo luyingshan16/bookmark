@@ -16,19 +16,28 @@ import retrofit2.HttpException
 import java.io.IOException
 import javax.inject.Inject
 
-class ApiAuthRepository @Inject constructor(
+class ApiAuthRepository internal constructor(
     private val api: AuthApi,
-    private val preferences: UserPreferencesRepository
+    private val saveTokens: suspend (String, String) -> Unit,
+    private val clearTokens: suspend () -> String?
 ) : AuthRepository {
+    @Inject
+    constructor(api: AuthApi, preferences: UserPreferencesRepository) : this(
+        api, preferences::saveTokens, { preferences.clearTokens() }
+    )
 
     // 後端的註冊流程是「寄碼」再「驗證碼 + 密碼完成註冊」。
     // 暫存在記憶體，不落盤；離開 App 後使用者需重新填寫。
     private var pendingRegistrationPassword: String? = null
 
     override suspend fun login(email: String, password: String): Result<Unit> = runCatching {
-        val response = api.login(LoginRequest(email.trim(), password))
-        preferences.saveTokens(response.accessToken, response.refreshToken)
+        signIn(email, password)
     }.mapNetworkFailure()
+
+    private suspend fun signIn(email: String, password: String) {
+        val response = api.login(LoginRequest(email.trim(), password))
+        saveTokens(response.accessToken, response.refreshToken)
+    }
 
     override suspend fun loginWithGoogle(idToken: String, password: String?): Result<Unit> =
         runCatching {
@@ -50,7 +59,7 @@ class ApiAuthRepository @Inject constructor(
                 }
                 throw error
             }
-            preferences.saveTokens(response.accessToken, response.refreshToken)
+            saveTokens(response.accessToken, response.refreshToken)
         }.mapNetworkFailure()
 
     override suspend fun register(email: String, password: String): Result<Unit> = runCatching {
@@ -58,14 +67,22 @@ class ApiAuthRepository @Inject constructor(
         pendingRegistrationPassword = password
     }.mapNetworkFailure()
 
-    override suspend fun verifyEmail(email: String, code: String): Result<Unit> = runCatching {
+    override suspend fun verifyEmail(email: String, code: String): Result<RegistrationOutcome> = runCatching {
         val password = checkNotNull(pendingRegistrationPassword) {
             "註冊資料已逾時，請重新輸入 Email 和密碼"
         }
         api.register(RegisterRequest(email.trim(), code, password))
         pendingRegistrationPassword = null
-        val auth = api.login(LoginRequest(email.trim(), password))
-        preferences.saveTokens(auth.accessToken, auth.refreshToken)
+        // The account already exists. Only the automatic sign-in can fail here.
+        try {
+            signIn(email, password)
+            RegistrationOutcome.SIGNED_IN
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (error is HttpException && error.code() == 429) RegistrationOutcome.MANUAL_LOGIN_THROTTLED
+            else RegistrationOutcome.MANUAL_LOGIN_REQUIRED
+        }
     }.mapNetworkFailure()
 
     override suspend fun resendVerificationCode(email: String): Result<Unit> =
@@ -98,13 +115,13 @@ class ApiAuthRepository @Inject constructor(
                 resetToken, newPassword, confirmPassword
             )
         )
-        preferences.clearTokens()
+        clearTokens()
         Unit
     }.mapNetworkFailure()
 
     override suspend fun logout(): Result<Unit> {
         return runCatching {
-            preferences.clearTokens()?.let { api.logout(LogoutRequest(it)) }
+            clearTokens()?.let { api.logout(LogoutRequest(it)) }
             Unit
         }.mapNetworkFailure()
     }

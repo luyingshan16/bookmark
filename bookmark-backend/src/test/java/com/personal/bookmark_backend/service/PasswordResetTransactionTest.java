@@ -8,6 +8,7 @@ import com.personal.bookmark_backend.security.GoogleIdTokenVerifier;
 
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.*;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -38,7 +39,21 @@ import static org.mockito.Mockito.*;
         "jwt.secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 })
 class PasswordResetTransactionTest {
-    @Configuration
+    @Test
+    void sessionExpiryUsesExplicitUtcBoundaryAndKeepsThirtyDayIdleLimit() {
+        var session = refresh.createRefreshToken(userId);
+        var record = refreshTokens.findById(session.id()).orElseThrow();
+        long idleSeconds = java.time.Duration.between(record.getCreatedAt(), record.getExpiresAt()).toSeconds();
+        assertTrue(Math.abs(idleSeconds - java.time.Duration.ofDays(30).toSeconds()) <= 2);
+        var boundary = record.getExpiresAt();
+        assertTrue(refreshTokens.existsActiveSession(session.id(), userId, boundary.minusSeconds(1)));
+        assertFalse(refreshTokens.existsActiveSession(session.id(), userId, boundary));
+        assertFalse(refreshTokens.existsActiveSession(session.id(), userId, boundary.plusSeconds(1)));
+        assertFalse(refreshTokens.existsActiveSession(session.id(), -1L, boundary.minusSeconds(1)));
+        refresh.revokeAllUserRefreshTokens(userId);
+        assertFalse(refreshTokens.existsActiveSession(session.id(), userId, boundary.minusSeconds(1)));
+    }
+    @TestConfiguration
     @EnableTransactionManagement
     @EnableJpaRepositories(basePackages = "com.personal.bookmark_backend.repository")
     @Import({AuthService.class, RefreshTokenService.class, PasswordResetRateLimiter.class, GoogleAuthService.class})
@@ -120,7 +135,7 @@ class PasswordResetTransactionTest {
         User user = new User();
         user.setEmail(email);
         user.setPasswordHash(encoder.encode("OldPass123"));
-        user.setEmailVerifiedAt(LocalDateTime.now());
+        user.setEmailVerifiedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
         userId = users.save(user).getId();
         messages = new LinkedBlockingQueue<>();
         reset(mail);
@@ -135,7 +150,7 @@ class PasswordResetTransactionTest {
             var saved = new PasswordResetCode();
             saved.setUserId(userId);
             saved.setCodeHash(encoder.encode(code));
-            saved.setExpiresAt(LocalDateTime.now().plusMinutes(5));
+            saved.setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(5));
             codes.save(saved);
         });
     }
@@ -155,7 +170,7 @@ class PasswordResetTransactionTest {
         EmailVerificationCode saved = new EmailVerificationCode();
         saved.setEmail(recipient);
         saved.setCodeHash(encoder.encode("123456"));
-        saved.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        saved.setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(10));
         registrationCodes.save(saved);
 
         for (int i = 0; i < 5; i++) {
@@ -177,11 +192,11 @@ class PasswordResetTransactionTest {
         assertNotEquals(firstSession.sessionId(), secondSession.sessionId());
 
         auth.logout(first.refreshToken());
-        assertFalse(refreshTokens.existsActiveSession(firstSession.sessionId(), userId));
-        assertTrue(refreshTokens.existsActiveSession(secondSession.sessionId(), userId));
+        assertFalse(refreshTokens.existsActiveSession(firstSession.sessionId(), userId, LocalDateTime.now(java.time.ZoneOffset.UTC)));
+        assertTrue(refreshTokens.existsActiveSession(secondSession.sessionId(), userId, LocalDateTime.now(java.time.ZoneOffset.UTC)));
 
         auth.logoutAll(userId);
-        assertFalse(refreshTokens.existsActiveSession(secondSession.sessionId(), userId));
+        assertFalse(refreshTokens.existsActiveSession(secondSession.sessionId(), userId, LocalDateTime.now(java.time.ZoneOffset.UTC)));
     }
 
     @Test
@@ -232,7 +247,7 @@ class PasswordResetTransactionTest {
         auth.logout(refreshToken);
         assertThrows(UnauthorizedException.class, () -> auth.refreshSession(renewed.refreshToken(), requestId));
         assertFalse(refreshTokens.existsActiveSession(
-                jwt.authenticate(renewed.accessToken()).sessionId(), userId));
+                jwt.authenticate(renewed.accessToken()).sessionId(), userId, LocalDateTime.now(java.time.ZoneOffset.UTC)));
     }
 
     @Test
@@ -274,7 +289,7 @@ class PasswordResetTransactionTest {
         String requestId = "a".repeat(43);
         var renewed = auth.refreshSession(original.refreshToken(), requestId);
         var old = refreshTokens.findById(jwt.authenticate(original.accessToken()).sessionId()).orElseThrow();
-        old.setRevokedAt(LocalDateTime.now().minusMinutes(3));
+        old.setRevokedAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(3));
         refreshTokens.save(old);
 
         assertThrows(UnauthorizedException.class, () -> auth.refreshSession(original.refreshToken(), requestId));
@@ -285,7 +300,7 @@ class PasswordResetTransactionTest {
     void rotationEnforcesBothExpirationLimits() {
         var expired = auth.login(email, "OldPass123").refreshToken();
         var expiredRecord = refreshTokens.findAllByUserId(userId).get(0);
-        expiredRecord.setExpiresAt(LocalDateTime.now().minusDays(1));
+        expiredRecord.setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(1));
         refreshTokens.save(expiredRecord);
         String requestId = "a".repeat(43);
         assertThrows(UnauthorizedException.class, () -> auth.refreshSession(expired, requestId));
@@ -294,15 +309,15 @@ class PasswordResetTransactionTest {
         var validRecord = refreshTokens.findAllByUserId(userId).stream()
                 .filter(token -> !token.getId().equals(expiredRecord.getId()))
                 .findFirst().orElseThrow();
-        validRecord.setAbsoluteExpiresAt(LocalDateTime.now().plusDays(1));
+        validRecord.setAbsoluteExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusDays(1));
         var absoluteExpiry = refreshTokens.save(validRecord).getAbsoluteExpiresAt();
         var renewed = auth.refreshSession(valid, requestId);
         var record = refreshTokens.findById(jwt.authenticate(renewed.accessToken()).sessionId()).orElseThrow();
         assertEquals(record.getAbsoluteExpiresAt(), record.getExpiresAt());
         assertTrue(Math.abs(java.time.Duration.between(absoluteExpiry, record.getExpiresAt()).toMillis()) < 1);
-        record.setAbsoluteExpiresAt(LocalDateTime.now().minusSeconds(1));
+        record.setAbsoluteExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(1));
         refreshTokens.save(record);
-        assertFalse(refreshTokens.existsActiveSession(record.getId(), userId));
+        assertFalse(refreshTokens.existsActiveSession(record.getId(), userId, LocalDateTime.now(java.time.ZoneOffset.UTC)));
         assertThrows(UnauthorizedException.class, () -> auth.refreshSession(renewed.refreshToken(), requestId));
     }
 
@@ -322,15 +337,15 @@ class PasswordResetTransactionTest {
         seed("012345");
         tx.executeWithoutResult(s -> codes.findByUserId(userId)
                 .orElseThrow()
-                .setExpiresAt(LocalDateTime.now().minusSeconds(1)));
+                .setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(1)));
         assertThrows(IllegalArgumentException.class, () -> auth.verifyResetCode(email, "012345", email));
         tx.executeWithoutResult(s -> codes.findByUserId(userId)
                 .orElseThrow()
-                .setExpiresAt(LocalDateTime.now().plusMinutes(5)));
+                .setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(5)));
         String token = auth.verifyResetCode(email, "012345", email);
         tx.executeWithoutResult(s -> codes.findByUserId(userId)
                 .orElseThrow()
-                .setResetTokenExpiresAt(LocalDateTime.now().minusSeconds(1)));
+                .setResetTokenExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(1)));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> auth.resetPassword(token, "NewPass123", "NewPass123")
@@ -396,7 +411,7 @@ class PasswordResetTransactionTest {
         Long id = saved().getId();
         tx.executeWithoutResult(s -> codes.findByUserId(userId)
                 .orElseThrow()
-                .setExpiresAt(LocalDateTime.now().plusMinutes(3)));
+                .setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(3)));
         auth.forgotPassword(email, email);
         var message = messages.poll(5, TimeUnit.SECONDS);
         assertNotNull(message);
@@ -425,7 +440,7 @@ class PasswordResetTransactionTest {
         String token = token();
         tx.executeWithoutResult(s -> codes.findByUserId(userId)
                 .orElseThrow()
-                .setExpiresAt(LocalDateTime.now().plusMinutes(3)));
+                .setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(3)));
         var attempted = new CountDownLatch(1);
         doAnswer(call -> {
             attempted.countDown();
@@ -436,6 +451,66 @@ class PasswordResetTransactionTest {
         assertTrue(attempted.await(5, TimeUnit.SECONDS));
         assertEquals(previous, saved().getResetTokenHash());
         assertNotNull(token);
+    }
+
+    @Test
+    void silentSmtpTimesOutPreservesOldCodeReleasesLockAndWorkerCanRetry() throws Exception {
+        token();
+        tx.executeWithoutResult(s -> codes.findByUserId(userId).orElseThrow()
+                .setExpiresAt(LocalDateTime.now(java.time.ZoneOffset.UTC).plusMinutes(3)));
+        var previous = saved();
+        var properties = new Properties();
+        try (var resource = getClass().getResourceAsStream("/application.properties")) {
+            assertNotNull(resource);
+            properties.load(resource);
+        }
+        var sender = new org.springframework.mail.javamail.JavaMailSenderImpl();
+        for (String name : List.of("connectiontimeout", "timeout", "writetimeout")) {
+            String value = properties.getProperty("spring.mail.properties.mail.smtp." + name);
+            assertEquals(name.equals("connectiontimeout") ? "5000" : "10000", value);
+            sender.getJavaMailProperties().setProperty("mail.smtp." + name, value);
+        }
+        // Local plaintext fake SMTP deliberately never sends its greeting. No real mail is sent.
+        try (var server = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())) {
+            server.setSoTimeout(5000);
+            sender.setHost(server.getInetAddress().getHostAddress());
+            sender.setPort(server.getLocalPort());
+            var finished = new CountDownLatch(1);
+            var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            doAnswer(call -> {
+                try {
+                    sender.send((SimpleMailMessage) call.getArgument(0));
+                    return null;
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                    throw error;
+                } finally {
+                    finished.countDown();
+                }
+            }).when(mail).send(any(SimpleMailMessage.class));
+            long started = System.nanoTime();
+            auth.forgotPassword(email, email);
+            try (var socket = server.accept()) {
+                assertTrue(finished.await(20, TimeUnit.SECONDS), "SMTP read must time out");
+                assertInstanceOf(MailException.class, failure.get());
+                long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+                assertTrue(elapsed >= 8000 && elapsed < 20000, "Read timeout duration: " + elapsed);
+            }
+            var executor = (ExecutorService) org.springframework.test.util.ReflectionTestUtils.getField(auth, "resetMailExecutor");
+            assertNotNull(executor);
+            // Taking the same user lock waits for the failed mail transaction to finish rollback.
+            executor.submit(() -> tx.executeWithoutResult(s -> users.lockById(userId).orElseThrow()))
+                    .get(5, TimeUnit.SECONDS);
+            assertEquals(previous.getCodeHash(), saved().getCodeHash());
+            assertEquals(previous.getResetTokenHash(), saved().getResetTokenHash());
+            assertEquals(previous.getExpiresAt(), saved().getExpiresAt());
+            doNothing().when(mail).send(any(SimpleMailMessage.class));
+            // Exercise a new delivery on the same worker pool, bypassing only HTTP resend throttling.
+            executor.submit(() -> org.springframework.test.util.ReflectionTestUtils.invokeMethod(auth, "deliverResetCode", email))
+                    .get(5, TimeUnit.SECONDS);
+            assertNotEquals(previous.getCodeHash(), saved().getCodeHash());
+            verify(mail, times(2)).send(any(SimpleMailMessage.class));
+        }
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.service;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import com.personal.bookmark_backend.entity.Bookmark;
 import com.personal.bookmark_backend.entity.BookmarkTag;
 import com.personal.bookmark_backend.entity.BookmarkTagId;
@@ -12,28 +14,32 @@ import com.personal.bookmark_backend.repository.TagRepository;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
 public class TagService {
+    private static final int MOVE_ASSOCIATION_BATCH_SIZE = 500;
 
     private final TagRepository tagRepository;
     private final BookmarkRepository bookmarkRepository;
     private final BookmarkTagRepository bookmarkTagRepository;
     private final FolderRepository folderRepository;
+    private final JdbcTemplate jdbc;
 
 
     // =====================================================
@@ -123,36 +129,24 @@ public class TagService {
         // 建立或取得新的標籤
         // -------------------------------------------------
 
-        // 一次查詢這個收藏夾已經存在的標籤
-        List<Tag> folderTags =
-                tagRepository.findAllByUserIdAndFolderId(userId, folderId);
-
-        // 建立「標籤名稱 -> Tag Entity」對照表
-        Map<String, Tag> tagMap = folderTags.stream()
-                .collect(Collectors.toMap(
-                        Tag::getName,
-                        Function.identity()
-                ));
-
         List<BookmarkTag> newAssociations = new ArrayList<>();
+        Set<Long> newTagIds = new LinkedHashSet<>();
 
         for (String tagName : normalizedNames) {
 
-            Tag tag = tagMap.get(tagName);
+            // 名稱是否等價交由資料庫 collation 判斷，並保留既有標籤的名稱。
+            // 同次操作剛建立的標籤也會由後續查詢取得。
+            Tag tag = tagRepository.findByUserIdAndFolderIdAndName(userId, folderId, tagName)
+                    .orElseGet(() -> {
+                        Tag created = new Tag();
+                        created.setUserId(userId);
+                        created.setFolderId(folderId);
+                        created.setName(tagName);
+                        return tagRepository.save(created);
+                    });
 
-            // 如果標籤不存在，就建立新的標籤
-            if (tag == null) {
-
-                tag = new Tag();
-                tag.setUserId(userId);
-                tag.setFolderId(folderId);
-                tag.setName(tagName);
-
-                tag = tagRepository.save(tag);
-
-                // 加入對照表，避免同一次操作重複建立
-                tagMap.put(tagName, tag);
-            }
+            // 不同輸入名稱可能對應同一標籤，關聯必須依 ID 去重。
+            if (!newTagIds.add(tag.getId())) continue;
 
             // 建立收藏與標籤的關聯
             BookmarkTag association = new BookmarkTag();
@@ -185,7 +179,7 @@ public class TagService {
 
         // 修改 bookmark_tags 不會自動觸發 Bookmark 的 @PreUpdate，
         // 因此必須主動更新收藏的 updatedAt。
-        bookmark.setUpdatedAt(LocalDateTime.now());
+        bookmark.setUpdatedAt(ApplicationTime.now());
 
         bookmarkRepository.save(bookmark);
     }
@@ -210,52 +204,76 @@ public class TagService {
         Map<String, Tag> destinationTags = new HashMap<>();
         List<BookmarkTag> newAssociations = new ArrayList<>();
         for (var entry : bySource.entrySet()) {
-            Long sourceFolderId = entry.getKey();
             var movingBookmarks = entry.getValue();
             var bookmarkIds = movingBookmarks.stream().map(Bookmark::getId).toList();
-            var oldAssociations = bookmarkTagRepository.findAllByBookmarkIds(userId, sourceFolderId, bookmarkIds);
-            var oldTagIds = oldAssociations.stream().map(BookmarkTag::getTagId).distinct().toList();
-            if (!oldTagIds.isEmpty()) {
-                var sourceTags = tagRepository.findAllById(oldTagIds).stream()
-                        .filter(tag -> userId.equals(tag.getUserId()) && sourceFolderId.equals(tag.getFolderId()))
-                        .collect(Collectors.toMap(Tag::getId, Tag::getName));
-                var namesToLoad = sourceTags.values().stream().distinct()
-                        .filter(name -> !destinationTags.containsKey(name)).toList();
-                if (!namesToLoad.isEmpty()) {
-                    tagRepository.findAllByUserIdAndFolderIdAndNameIn(userId, targetFolderId, namesToLoad)
-                            .forEach(tag -> destinationTags.put(tag.getName(), tag));
-                }
-                for (var oldAssociation : oldAssociations) {
-                    String name = sourceTags.get(oldAssociation.getTagId());
-                    if (name == null) throw new IllegalStateException("找不到收藏原本的標籤，無法完成搬移");
-                    Tag targetTag = destinationTags.computeIfAbsent(name, key -> tagRepository
-                            .findByUserIdAndFolderIdAndName(userId, targetFolderId, key)
-                            .orElseGet(() -> {
-                                var tag = new Tag();
-                                tag.setUserId(userId);
-                                tag.setFolderId(targetFolderId);
-                                tag.setName(key);
-                                return tagRepository.save(tag);
-                            }));
-                    var newId = new BookmarkTagId();
-                    newId.setBookmarkId(oldAssociation.getBookmarkId());
-                    newId.setTagId(targetTag.getId());
-                    var association = new BookmarkTag();
-                    association.setId(newId);
-                    association.setUserId(userId);
-                    association.setFolderId(targetFolderId);
-                    newAssociations.add(association);
-                }
-
-                // 複合外鍵要求先移除舊關聯，才能變更收藏的 folder_id。
-                bookmarkTagRepository.deleteByBookmarkIds(userId, sourceFolderId, bookmarkIds);
-                bookmarkTagRepository.deleteUnusedTags(userId, sourceFolderId, oldTagIds);
-            }
+            newAssociations.addAll(prepareTagMove(userId, entry.getKey(), targetFolderId, bookmarkIds, destinationTags));
             movingBookmarks.forEach(bookmark -> bookmark.setFolderId(targetFolderId));
         }
 
         bookmarkRepository.flush();
         bookmarkTagRepository.saveAll(newAssociations);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    void moveFolderBookmarkBatch(Long userId, Long sourceFolderId, Long targetFolderId, List<Long> bookmarkIds) {
+        var associations = prepareTagMove(userId, sourceFolderId, targetFolderId, bookmarkIds, new HashMap<>());
+        LocalDateTime now = ApplicationTime.now();
+        int moved = bookmarkRepository.moveFolderBatch(userId, sourceFolderId, targetFolderId, bookmarkIds, now);
+        if (moved != bookmarkIds.size()) throw new IllegalStateException("搬移收藏筆數與預期不符");
+
+        for (int start = 0; start < associations.size(); start += MOVE_ASSOCIATION_BATCH_SIZE) {
+            var batch = associations.subList(start, Math.min(start + MOVE_ASSOCIATION_BATCH_SIZE, associations.size()));
+            var values = new ArrayList<Object>(batch.size() * 5);
+            for (var association : batch) {
+                Collections.addAll(values, association.getBookmarkId(), association.getTagId(), userId, targetFolderId, now);
+            }
+            // 使用交易中的同一連線，一次寫入多筆，避免 ORM 逐筆查詢複合主鍵。
+            jdbc.update("insert into bookmark_tags (bookmark_id, tag_id, user_id, folder_id, created_at) values "
+                    + String.join(", ", Collections.nCopies(batch.size(), "(?, ?, ?, ?, ?)")), values.toArray());
+        }
+    }
+
+    private List<BookmarkTag> prepareTagMove(Long userId, Long sourceFolderId, Long targetFolderId,
+                                             List<Long> bookmarkIds, Map<String, Tag> destinationTags) {
+        var oldAssociations = bookmarkTagRepository.findAllByBookmarkIds(userId, sourceFolderId, bookmarkIds);
+        if (oldAssociations.isEmpty()) return List.of();
+
+        var oldTagIds = oldAssociations.stream().map(BookmarkTag::getTagId).distinct().toList();
+        var sourceTags = tagRepository.findAllById(oldTagIds).stream()
+                .filter(tag -> userId.equals(tag.getUserId()) && sourceFolderId.equals(tag.getFolderId()))
+                .collect(Collectors.toMap(Tag::getId, Tag::getName));
+        var namesToLoad = sourceTags.values().stream().distinct()
+                .filter(name -> !destinationTags.containsKey(name)).toList();
+        if (!namesToLoad.isEmpty()) {
+            tagRepository.findAllByUserIdAndFolderIdAndNameIn(userId, targetFolderId, namesToLoad)
+                    .forEach(tag -> destinationTags.put(tag.getName(), tag));
+        }
+        var newAssociations = new ArrayList<BookmarkTag>(oldAssociations.size());
+        for (var oldAssociation : oldAssociations) {
+            String name = sourceTags.get(oldAssociation.getTagId());
+            if (name == null) throw new IllegalStateException("找不到收藏原本的標籤，無法完成搬移");
+            Tag targetTag = destinationTags.computeIfAbsent(name, key -> tagRepository
+                    .findByUserIdAndFolderIdAndName(userId, targetFolderId, key)
+                    .orElseGet(() -> {
+                        var tag = new Tag();
+                        tag.setUserId(userId);
+                        tag.setFolderId(targetFolderId);
+                        tag.setName(key);
+                        return tagRepository.save(tag);
+                    }));
+            var newId = new BookmarkTagId();
+            newId.setBookmarkId(oldAssociation.getBookmarkId());
+            newId.setTagId(targetTag.getId());
+            var association = new BookmarkTag();
+            association.setId(newId);
+            association.setUserId(userId);
+            association.setFolderId(targetFolderId);
+            newAssociations.add(association);
+        }
+        // 複合外鍵要求先移除舊關聯，才能變更收藏的 folder_id。
+        bookmarkTagRepository.deleteByBookmarkIds(userId, sourceFolderId, bookmarkIds);
+        bookmarkTagRepository.deleteUnusedTags(userId, sourceFolderId, oldTagIds);
+        return newAssociations;
     }
 
     // =====================================================
@@ -315,7 +333,7 @@ public class TagService {
                 );
             }
 
-            // LinkedHashSet 可以保留輸入順序並自動排除重複值
+            // 先排除完全相同的字串；資料庫等價名稱在取得 Tag 後依 ID 去重。
             normalizedNames.add(normalizedName);
         }
 

@@ -9,5 +9,6 @@ import org.mapstruct.ReportingPolicy;
 
 @Mapper(componentModel = MappingConstants.ComponentModel.SPRING, unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface TagMapper {
+    @org.mapstruct.Mapping(target = "createdAt", expression = "java(com.personal.bookmark_backend.time.ApplicationTime.toTaipei(tag.getCreatedAt()))")
     TagResponse toResponse(Tag tag);
 }

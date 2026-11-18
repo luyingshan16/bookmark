@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -60,7 +62,7 @@ public class PasswordResetCode {
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {
-            createdAt = LocalDateTime.now();
+            createdAt = ApplicationTime.now();
         }
     }
 }

@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -60,7 +62,8 @@ public class RefreshToken {
     @Column(name = "family_id")
     private Long familyId;
 
-    @Column(name = "absolute_expires_at", nullable = false)
+    // Legacy rows may be NULL. Rotation derives the deadline from createdAt + 180 days.
+    @Column(name = "absolute_expires_at")
     private LocalDateTime absoluteExpiresAt;
 
     @Column(name = "successor_id")
@@ -80,6 +83,6 @@ public class RefreshToken {
     // 新增 Token 時自動設定時間
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = ApplicationTime.now();
     }
 }

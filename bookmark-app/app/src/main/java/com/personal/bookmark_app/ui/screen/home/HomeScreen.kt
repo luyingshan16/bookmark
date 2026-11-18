@@ -219,7 +219,7 @@ fun HomeScreen(
                     },
                     onFolderClick = { folder ->
                         // 判斷資料夾是否有收藏
-                        if (folder.count == 0) {
+                        if (folder.count == 0L) {
                             selectedEmptyFolder = folder
                         } else {
                             // 有收藏則維持原本的導頁行為

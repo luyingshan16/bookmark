@@ -4,19 +4,21 @@ import com.personal.bookmark_backend.entity.Folder;
 import com.personal.bookmark_backend.entity.User;
 import com.personal.bookmark_backend.exception.ConflictException;
 import com.personal.bookmark_backend.exception.ResourceNotFoundException;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,6 +33,18 @@ class FolderOperationsTransactionTest extends BookmarkTransactionTestSupport {
     TagService tags;
     @Autowired
     JdbcTemplate jdbc;
+
+    @BeforeAll
+    static void createFolderJobsTable(@Autowired JdbcTemplate jdbc) throws IOException {
+        var schema = new ClassPathResource("db/schema.sql");
+        // Hibernate creates the entity tables in H2. The MySQL bootstrap also defines this JDBC-only table.
+        var folderJobsDdl = Pattern.compile("(?ms)^CREATE TABLE `folder_jobs` \\(.*?^\\)[^\\r\\n]*;")
+                .matcher(schema.getContentAsString(StandardCharsets.UTF_8));
+        if (!folderJobsDdl.find()) {
+            throw new IllegalStateException("Missing folder_jobs definition in " + schema.getPath());
+        }
+        jdbc.execute(folderJobsDdl.group());
+    }
 
     @Test
     void folderPagesAndSelectAllUseTheSameFilters() {
@@ -175,8 +189,6 @@ class FolderOperationsTransactionTest extends BookmarkTransactionTestSupport {
 
     @Test
     void folderJobsPersistBeforeProcessingAndReportTheirOutcome() {
-        new ResourceDatabasePopulator(new ClassPathResource("db/manual/create_folder_jobs.sql"))
-                .execute(Objects.requireNonNull(jdbc.getDataSource()));
         var moveId = UUID.randomUUID().toString();
         var move = folderJobs.submit(userId, moveId, folderId, null, "background target", false);
         assertEquals(FolderJobs.State.PENDING, move.state());
@@ -203,8 +215,6 @@ class FolderOperationsTransactionTest extends BookmarkTransactionTestSupport {
 
     @Test
     void folderJobFailureKeepsSourceAndReportsWhyItCouldNotMove() {
-        new ResourceDatabasePopulator(new ClassPathResource("db/manual/create_folder_jobs.sql"))
-                .execute(Objects.requireNonNull(jdbc.getDataSource()));
         var destination = folderService.createFolder(userId, "destination");
         var id = UUID.randomUUID().toString();
         folderJobs.submit(userId, id, folderId, destination.getId(), null, false);

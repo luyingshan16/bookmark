@@ -1,5 +1,7 @@
 package com.personal.bookmark_backend.entity;
 
+import com.personal.bookmark_backend.time.ApplicationTime;
+
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Max;
@@ -34,6 +36,6 @@ public class DailyPickSelection {
 
     @PrePersist
     void created() {
-        if (createdAt == null) createdAt = LocalDateTime.now(java.time.ZoneId.of("Asia/Taipei"));
+        if (createdAt == null) createdAt = ApplicationTime.now();
     }
 }

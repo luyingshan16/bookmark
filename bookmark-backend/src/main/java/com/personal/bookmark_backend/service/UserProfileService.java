@@ -12,8 +12,6 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.function.Function;
-
 @Service
 @RequiredArgsConstructor
 public class UserProfileService {
@@ -28,7 +26,7 @@ public class UserProfileService {
     }
 
     @Transactional
-    public User updateAvatar(Long userId, MultipartFile file, Function<String, String> urlForFile) {
+    public User updateAvatar(Long userId, MultipartFile file) {
         rateLimiter.checkSource("avatar", userId.toString(), 6);
         User user = userRepository.lockById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("找不到使用者"));
@@ -44,8 +42,12 @@ public class UserProfileService {
                 }
             }
         });
-        user.setAvatarUrl(urlForFile.apply(fileName));
+        user.setAvatarUrl(fileName);
         return user;
+    }
+
+    public String avatarImageUrl(User user) {
+        return avatarStorage.publicUrl(user.getAvatarUrl());
     }
 
     private User findUser(Long userId) {

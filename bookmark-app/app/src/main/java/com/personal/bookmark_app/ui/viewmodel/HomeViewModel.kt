@@ -78,6 +78,7 @@ class HomeViewModel @Inject constructor(
 
     fun refreshLatestBatchJob() {
         if (batchJobRefresh?.isActive == true) return
+        _uiState.update { it.copy(batchJobStatusUnavailable = false) }
         batchJobRefresh = viewModelScope.launch {
             try {
                 val sessionId = userPreferencesRepository.sessionTokens()?.sessionId ?: return@launch
@@ -92,7 +93,7 @@ class HomeViewModel @Inject constructor(
                     _uiState.update { it.copy(latestBatchJob = status) }
                     status.finished
                 }
-                if (!userPreferencesRepository.wasJobResultShown(sessionId, status.id) &&
+                if (!userPreferencesRepository.wasJobResultShown(status.id) &&
                     userPreferencesRepository.sessionTokens()?.sessionId == sessionId
                 ) {
                     val result = HomeBatchJobResult(status, JobResultReceipt(sessionId, status.id))
@@ -107,10 +108,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    suspend fun consumeBatchJobResult(result: HomeBatchJobResult) {
+    suspend fun consumeBatchJobResult(result: HomeBatchJobResult): Boolean {
         val receipt = result.receipt
-        userPreferencesRepository.markJobResultShown(receipt.sessionId, receipt.jobId)
+        val marked = userPreferencesRepository.markJobResultShown(receipt.sessionId, receipt.jobId)
         _uiState.update { if (it.batchJobResult == result) it.copy(batchJobResult = null) else it }
+        return marked
     }
 
     fun updateAvatar(uri: Uri) {
@@ -171,7 +173,7 @@ class HomeViewModel @Inject constructor(
                 while (userPreferencesRepository.sessionTokens()?.sessionId == sessionId) {
                     _uiState.update { it.copy(folderJob = status) }
                     if (status.finished) {
-                        if (!userPreferencesRepository.wasJobResultShown(sessionId, status.id, isFolderJob = true)) {
+                        if (!userPreferencesRepository.wasJobResultShown(status.id, isFolderJob = true)) {
                             folderChanges.notifyChanged()
                             val result = FolderJobResult(status, JobResultReceipt(sessionId, status.id))
                             _uiState.update { it.copy(folderJobResult = result) }
@@ -199,9 +201,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    suspend fun consumeFolderJobResult(result: FolderJobResult) {
-        userPreferencesRepository.markJobResultShown(result.receipt.sessionId, result.receipt.jobId, isFolderJob = true)
+    suspend fun consumeFolderJobResult(result: FolderJobResult): Boolean {
+        val receipt = result.receipt
+        val marked = userPreferencesRepository.markJobResultShown(receipt.sessionId, receipt.jobId, isFolderJob = true)
         _uiState.update { if (it.folderJobResult == result) it.copy(folderJobResult = null) else it }
+        return marked
     }
 
     suspend fun createFolder(name: String) {

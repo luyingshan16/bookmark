@@ -72,7 +72,7 @@ fun LoginScreen(
                 .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 20.dp)
+                .padding(bottom = 32.dp)
         ) {
 
             Spacer(modifier = Modifier.height(40.dp))

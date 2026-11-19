@@ -1,35 +1,27 @@
 package com.personal.bookmark_app.ui.screen.addbookmark
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.personal.bookmark_app.ui.components.CreateFolderSheetButton
+import com.personal.bookmark_app.ui.components.FolderSheetRow
 import com.personal.bookmark_app.ui.model.FolderUiModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,6 +35,7 @@ fun FolderSelectionSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(
             topStart = 20.dp,
@@ -55,208 +48,43 @@ fun FolderSelectionSheet(
         }
     ) {
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = 20.dp,
-                    end = 20.dp,
-                    bottom = 24.dp
-                )
-        ) {
-
-            // Sheet 標題
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-
-                    Text(
-                        text = "選擇收藏夾",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Text(
-                        text = "選取欲歸屬的收藏分類",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // 資料夾列表
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-
-                folders.forEach { folder ->
-
-                    val isSelected = folder.id == selectedFolderId
-
-                    FolderSelectionItem(
-                        folder = folder,
-                        isSelected = isSelected,
-                        onClick = {
-                            onFolderSelected(folder.id)
-                        }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // 新建收藏夾
-            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(
-                        onClick = onCreateFolderClick
-                    ),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant
+                    .heightIn(max = maxHeight * 0.8f)
+                    .padding(start = 20.dp, end = 20.dp, bottom = 24.dp)
+            ) {
+                Text(
+                    text = "選擇收藏夾",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-            ) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "選取欲歸屬的收藏分類",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.padding(
-                        vertical = 13.dp
-                    ),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                CreateFolderSheetButton(onClick = onCreateFolderClick)
 
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    Text(
-                        text = "新建收藏夾",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FolderSelectionItem(
-    folder: FolderUiModel,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        color = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        }
-    ) {
-
-        Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-
-            // 左側資料夾資訊
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-
-                // 資料夾圖示
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            MaterialTheme.colorScheme.surface
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(21.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-
-                    Text(
-                        text = folder.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Text(
-                        text = "${folder.count} 篇收藏",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // 右側選取狀態
-            if (isSelected) {
-
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer
-                ) {
-
-                    Text(
-                        text = "當前",
-                        modifier = Modifier.padding(
-                            horizontal = 9.dp,
-                            vertical = 4.dp
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-
-            } else {
-
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(
-                            MaterialTheme.colorScheme.surface
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 未選取時不顯示勾選
+                if (folders.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(items = folders, key = { it.id }) { folder ->
+                            FolderSheetRow(
+                                name = folder.title,
+                                bookmarkCount = folder.count,
+                                isSelected = folder.id == selectedFolderId,
+                                onClick = { onFolderSelected(folder.id) }
+                            )
+                        }
+                    }
                 }
             }
         }

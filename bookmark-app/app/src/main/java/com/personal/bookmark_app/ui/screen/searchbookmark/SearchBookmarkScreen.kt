@@ -29,8 +29,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,8 +43,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.personal.bookmark_app.ui.components.bookmark.BookmarkCard
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkSearchProgress
 import com.personal.bookmark_app.ui.components.bookmark.MoveBookmarkSheet
 import com.personal.bookmark_app.ui.components.SearchInputField
+import com.personal.bookmark_app.ui.components.BottomOverscroll
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSourceResponse
 import com.personal.bookmark_app.data.remote.dto.response.bookmark.displayNameFor
 import com.personal.bookmark_app.ui.model.toUiModel
@@ -61,6 +68,11 @@ fun SearchBookmarkScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val bookmarks = viewModel.bookmarks.collectAsLazyPagingItems()
     val isLoading = bookmarks.loadState.refresh is LoadState.Loading
+    var isPullRefreshing by remember { mutableStateOf(false) }
+    val isSearching = isLoading && !isPullRefreshing
+    LaunchedEffect(isLoading) {
+        if (!isLoading) isPullRefreshing = false
+    }
     val mutationError = uiState.mutationError
     val error = mutationError ?: when {
         bookmarks.loadState.refresh is LoadState.Error -> "搜尋收藏載入失敗，請稍後再試。"
@@ -74,7 +86,11 @@ fun SearchBookmarkScreen(
         topBar = {
             SearchBookmarkTopBar(
                 searchQuery = uiState.query,
-                onSearchQueryChange = viewModel::onQueryChange,
+                onSearch = viewModel::submitSearch,
+                onSearchQueryChange = { query ->
+                    if (query.trim() != uiState.query.trim()) isPullRefreshing = false
+                    viewModel.onQueryChange(query)
+                },
                 onBackClick = onBackClick
             )
         }
@@ -95,7 +111,10 @@ fun SearchBookmarkScreen(
                 countsFailed = uiState.countsFailed,
                 onRetryCounts = viewModel::loadSourceCounts,
                 selectedSource = uiState.selectedSource,
-                onSourceSelected = viewModel::onSourceSelected
+                onSourceSelected = { source ->
+                    if (source != uiState.selectedSource) isPullRefreshing = false
+                    viewModel.onSourceSelected(source)
+                }
             )
 
             Spacer(
@@ -111,36 +130,37 @@ fun SearchBookmarkScreen(
                 )
             }
 
-            // 搜尋結果列表
-            if (isLoading && bookmarks.itemCount == 0) {
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Text("載入收藏中…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            PullToRefreshBox(
+                isRefreshing = isPullRefreshing && isLoading,
+                onRefresh = {
+                    if (!isLoading) {
+                        isPullRefreshing = true
+                        bookmarks.refresh()
+                        viewModel.loadSourceCounts()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            ) {
+                if (isSearching) {
+                    BookmarkSearchProgress(modifier = Modifier.fillMaxSize())
+                } else {
+                    SearchResultList(
+                        bookmarks = bookmarks,
+                        bookmarkSources = bookmarkSources,
+                        listState = listState,
+                        availableTags = bookmarks.itemSnapshotList.items.flatMap { it.tags }.distinct()
+                            .sorted(),
+                        onEditTitle = { entry, value -> viewModel.updateBookmark(entry, title = value) },
+                        onEditNote = { entry, value -> viewModel.updateBookmark(entry, note = value) },
+                        onEditTags = { entry, value -> viewModel.updateBookmark(entry, tags = value) },
+                        onDelete = viewModel::deleteBookmark,
+                        onMove = viewModel::openMoveSheet,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    if (bookmarks.itemCount == 0 && !isLoading) {
+                        EmptySearchResult(modifier = Modifier.fillMaxSize())
+                    }
                 }
-            } else if (bookmarks.itemCount == 0) {
-                EmptySearchResult(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                )
-            } else {
-                SearchResultList(
-                    bookmarks = bookmarks,
-                    bookmarkSources = bookmarkSources,
-                    listState = listState,
-                    availableTags = bookmarks.itemSnapshotList.items.flatMap { it.tags }.distinct()
-                        .sorted(),
-                    onEditTitle = { entry, value ->
-                        viewModel.updateBookmark(
-                            entry,
-                            title = value
-                        )
-                    },
-                    onEditNote = { entry, value -> viewModel.updateBookmark(entry, note = value) },
-                    onEditTags = { entry, value -> viewModel.updateBookmark(entry, tags = value) },
-                    onDelete = viewModel::deleteBookmark,
-                    onMove = viewModel::openMoveSheet,
-                    modifier = Modifier.weight(1f)
-                )
             }
         }
     }
@@ -165,6 +185,7 @@ fun SearchBookmarkScreen(
 private fun SearchBookmarkTopBar(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
     onBackClick: () -> Unit
 ) {
     TopAppBar(
@@ -181,6 +202,7 @@ private fun SearchBookmarkTopBar(
             SearchInputField(
                 query = searchQuery,
                 onQueryChange = onSearchQueryChange,
+                onSearch = onSearch,
                 placeholder = "搜尋標題、網址或筆記..."
             )
         },
@@ -244,7 +266,7 @@ private fun SourceFilterSection(
                     code to count
                 }
                 .filter { (code, count) ->
-                    sourceBookmarkCounts == null || count > 0L || code.equals(
+                    count > 0L || code.equals(
                         selectedSource,
                         ignoreCase = true
                     )
@@ -300,31 +322,33 @@ private fun SearchResultList(
 ) {
     val context = LocalContext.current
 
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        state = listState,
-        contentPadding = PaddingValues(
-            bottom = 20.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        items(
-            count = bookmarks.itemCount,
-            key = bookmarks.itemKey { it.id }
-        ) { index ->
-            val bookmark = bookmarks[index] ?: return@items
-            BookmarkCard(
-                item = bookmark.toUiModel(bookmarkSources),
-                onClick = {
-                    openBookmarkUrl(context, bookmark.url)
-                },
-                onEditTitleClick = { onEditTitle(bookmark, it) },
-                onEditNoteClick = { onEditNote(bookmark, it) },
-                availableTags = availableTags,
-                onTagsSave = { onEditTags(bookmark, it) },
-                onDeleteClick = { onDelete(bookmark) },
-                onMoveClick = { onMove(bookmark) }
-            )
+    BottomOverscroll(bookmarks.itemCount > 0) { overscrollModifier ->
+        LazyColumn(
+            modifier = modifier.fillMaxWidth().then(overscrollModifier),
+            state = listState,
+            contentPadding = PaddingValues(
+                bottom = 20.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(
+                count = bookmarks.itemCount,
+                key = bookmarks.itemKey { it.id }
+            ) { index ->
+                val bookmark = bookmarks[index] ?: return@items
+                BookmarkCard(
+                    item = bookmark.toUiModel(bookmarkSources),
+                    onClick = {
+                        openBookmarkUrl(context, bookmark.url)
+                    },
+                    onEditTitleClick = { onEditTitle(bookmark, it) },
+                    onEditNoteClick = { onEditNote(bookmark, it) },
+                    availableTags = availableTags,
+                    onTagsSave = { onEditTags(bookmark, it) },
+                    onDeleteClick = { onDelete(bookmark) },
+                    onMoveClick = { onMove(bookmark) }
+                )
+            }
         }
     }
 }

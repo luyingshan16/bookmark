@@ -102,14 +102,14 @@ public interface BookmarkRepository extends JpaRepository<Bookmark, Long> {
     String SEARCH_TEXT_FILTER = """
             where b.userId = :userId
               and (:query is null or :query = ''
-                   or lower(b.title) like lower(concat('%', :query, '%'))
-                   or lower(b.url) like lower(concat('%', :query, '%'))
-                   or lower(b.content) like lower(concat('%', :query, '%'))
-                   or lower(b.note) like lower(concat('%', :query, '%'))
-                   or lower(b.source) like lower(concat('%', :query, '%'))
+                   or lower(b.title) like lower(concat('%', :query, '%')) escape '!'
+                   or lower(b.url) like lower(concat('%', :query, '%')) escape '!'
+                   or lower(b.content) like lower(concat('%', :query, '%')) escape '!'
+                   or lower(b.note) like lower(concat('%', :query, '%')) escape '!'
+                   or lower(b.source) like lower(concat('%', :query, '%')) escape '!'
             """;
 
-    String SEARCH_TAG_NAME_MATCH = "lower(t.name) like lower(concat('%', :query, '%'))";
+    String SEARCH_TAG_NAME_MATCH = "lower(t.name) like lower(concat('%', :query, '%')) escape '!'";
     String SEARCH_TAG_FILTER = "bt.id.tagId = t.id and bt.userId = :userId and " + SEARCH_TAG_NAME_MATCH;
 
     // 先確認此帳號有命中的標籤。找到足夠結果後仍可提早結束分頁查詢。

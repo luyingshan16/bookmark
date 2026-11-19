@@ -114,10 +114,27 @@ class BookmarkSearchTransactionTest extends BookmarkTransactionTestSupport {
 
         assertEquals(List.of(text.getId()), service.searchBookmarkSlice(userId, "文片", "other", page)
                 .getContent().stream().map(Bookmark::getId).toList());
-        var tagMatch = service.searchBookmarkSlice(userId, "旅_", "example", page);
+        var tagMatch = service.searchBookmarkSlice(userId, "旅", "example", page);
         assertEquals(List.of(tagged.getId()), tagMatch.getContent().stream().map(Bookmark::getId).toList());
         assertFalse(tagMatch.hasNext());
         assertTrue(service.searchBookmarkSlice(userId, "旅%", "other", page).isEmpty());
         assertTrue(service.searchBookmarkSlice(userId, "完全沒有命中", null, page).isEmpty());
+    }
+
+    @Test
+    void searchTreatsLikeWildcardsAsLiteralCharacters() {
+        service.createBookmark(userId, folderId, "https://example.org/plain", "旅遊",
+                null, null, "OTHER", null, List.of("旅館"), false);
+        var literal = service.createBookmark(userId, folderId, "https://example.org/encoded%20url",
+                "Literal", null, "確認!", "OTHER", null, List.of("旅_"), false);
+        var page = PageRequest.of(0, 20);
+
+        for (String query : List.of("旅_", "%20", "確認!")) {
+            assertEquals(List.of(literal.getId()), service.searchBookmarkSlice(userId, query, null, page)
+                    .getContent().stream().map(Bookmark::getId).toList());
+            assertEquals(1, service.searchBookmarks(userId, query, null, page).getTotalElements());
+            assertEquals(Map.of("OTHER", 1L), service.countSearchResultsBySource(userId, query));
+        }
+        assertTrue(service.searchBookmarkSlice(userId, "旅%", null, page).isEmpty());
     }
 }

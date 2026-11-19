@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -95,6 +96,7 @@ fun AddBookmarkScreen(
         topBar = {
             AddBookmarkTopBar(
                 isSaveEnabled = uiState.isFormValid,
+                isSaving = uiState.isSaving,
                 onBackClick = onBackClick,
                 onSaveClick = onSaveClick
             )
@@ -126,7 +128,7 @@ fun AddBookmarkScreen(
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(18.dp),
+                    modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
 
@@ -152,7 +154,6 @@ fun AddBookmarkScreen(
                         )
                     }
                     if (uiState.isLoading) Text("載入中…")
-                    if (uiState.isSaving) Text("儲存中…")
                     uiState.errorMessage?.let {
                         Text(
                             it,
@@ -280,6 +281,7 @@ fun AddBookmarkScreen(
 @Composable
 private fun AddBookmarkTopBar(
     isSaveEnabled: Boolean,
+    isSaving: Boolean,
     onBackClick: () -> Unit,
     onSaveClick: () -> Unit
 ) {
@@ -304,7 +306,7 @@ private fun AddBookmarkTopBar(
         actions = {
             Button(
                 onClick = onSaveClick,
-                enabled = isSaveEnabled,
+                enabled = isSaveEnabled && !isSaving,
                 modifier = Modifier.padding(end = 12.dp),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -317,7 +319,7 @@ private fun AddBookmarkTopBar(
                 )
             ) {
                 Text(
-                    text = "儲存",
+                    text = if (isSaving) "儲存中…" else "儲存",
                     style = MaterialTheme.typography.labelLarge
                 )
             }
@@ -499,7 +501,12 @@ private fun DailyPicksOption(
 
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                uncheckedTrackColor = MaterialTheme.colorScheme.surface,
+                uncheckedThumbColor = MaterialTheme.colorScheme.tertiary,
+                uncheckedBorderColor = MaterialTheme.colorScheme.tertiary
+            )
         )
     }
 }

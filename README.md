@@ -42,7 +42,7 @@
 | `AVATAR_UPLOAD_DIR` | 選填。預設為相對於後端工作目錄的 `uploads/avatars` |
 | `BOOKMARK_PUBLIC_BASE_URL` | 回傳頭像網址所用的後端根網址，預設 `http://localhost:8080`。設為手機或模擬器可連線的位址，正式部署使用公開 HTTPS 網址 |
 
-MySQL 連線使用 UTC，後端會在啟動時檢查連線時區。頭像網址存在 MySQL 的 `users.avatar_url`，圖片檔存在 `AVATAR_UPLOAD_DIR`。若需保留已上傳的頭像，請將目錄放在持久儲存空間，並和資料庫一起備份。
+MySQL 連線使用 UTC，後端會在啟動時檢查連線時區。MySQL 的 `users.avatar_url` 儲存頭像檔名，圖片檔存在 `AVATAR_UPLOAD_DIR`。若需保留已上傳的頭像，請將目錄放在持久儲存空間，並和資料庫一起備份。
 
 ## 安裝並執行 Android App
 
@@ -56,7 +56,7 @@ MySQL 連線使用 UTC，後端會在啟動時檢查連線時區。頭像網址�
 
 - 實體手機請先啟用 USB 偵錯，再將 API 位址改為手機可連線的電腦區網位址，例如 `http://192.168.1.10:8080/`。
 - 從 Android Studio 執行時，可在 `bookmark-app/gradle.properties` 設定本機使用的 `BOOKMARK_API_BASE_URL`。使用後端根網址，保留結尾的 `/`。
-- 測試頭像上傳時，請在啟動後端前把 `BOOKMARK_PUBLIC_BASE_URL` 設為裝置可連線的根網址，例如模擬器使用 `http://10.0.2.2:8080`。這會影響新上傳頭像寫入資料庫的網址。
+- 測試頭像上傳時，Android App 會使用 API 位址載入後端回傳的預設 `http://localhost:8080` 頭像網址。若有設定公開頭像網址，請使用裝置可連線的根網址。
 - 若要產生 APK 檔，將命令中的 `:app:installDebug` 換成 `:app:assembleDebug`。產物位於 `bookmark-app/app/build/outputs/apk/debug/app-debug.apk`。
 
 ### Release

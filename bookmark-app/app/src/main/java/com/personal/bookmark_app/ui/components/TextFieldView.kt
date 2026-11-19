@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,7 +38,8 @@ fun TextFieldView(
     trailingIcon: (@Composable () -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
     TextFieldContainer(
         modifier = modifier,
@@ -54,6 +56,7 @@ fun TextFieldView(
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             visualTransformation = visualTransformation,
             keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { innerTextField ->
                 Row(

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.personal.bookmark_app.ui.model.FolderDisplayMode
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,8 @@ private val ACCESS_TOKEN = stringPreferencesKey("access_token")
 private val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
 private val SHOWN_BATCH_JOB_RESULT = stringPreferencesKey("shown_move_result")
 private val SHOWN_FOLDER_JOB_RESULT = stringPreferencesKey("shown_folder_move_result")
+private val SHOWN_BATCH_JOB_IDS = stringSetPreferencesKey("shown_batch_job_ids")
+private val SHOWN_FOLDER_JOB_IDS = stringSetPreferencesKey("shown_folder_job_ids")
 private val SESSION_ID = stringPreferencesKey("local_session_id")
 private val REFRESH_REQUEST_ID = stringPreferencesKey("refresh_request_id")
 private var sessionStore: DataStore<Preferences>? = null
@@ -120,15 +123,25 @@ class UserPreferencesRepository @Inject constructor(
         return SessionTokens(sessionId, preferences[ACCESS_TOKEN], refreshToken)
     }
 
-    internal suspend fun wasJobResultShown(sessionId: String, jobId: String, isFolderJob: Boolean = false): Boolean =
-        session.data.first()[if (isFolderJob) SHOWN_FOLDER_JOB_RESULT else SHOWN_BATCH_JOB_RESULT] == "$sessionId:$jobId"
+    internal suspend fun wasJobResultShown(jobId: String, isFolderJob: Boolean = false): Boolean =
+        session.data.first().hasShownJob(jobId, isFolderJob)
 
-    internal suspend fun markJobResultShown(sessionId: String, jobId: String, isFolderJob: Boolean = false) {
+    internal suspend fun markJobResultShown(sessionId: String, jobId: String, isFolderJob: Boolean = false): Boolean {
+        var marked = false
         session.edit { preferences ->
-            if (preferences[SESSION_ID] == sessionId) {
-                preferences[if (isFolderJob) SHOWN_FOLDER_JOB_RESULT else SHOWN_BATCH_JOB_RESULT] = "$sessionId:$jobId"
+            if (preferences[SESSION_ID] == sessionId && !preferences.hasShownJob(jobId, isFolderJob)) {
+                val key = if (isFolderJob) SHOWN_FOLDER_JOB_IDS else SHOWN_BATCH_JOB_IDS
+                preferences[key] = preferences[key].orEmpty() + jobId
+                marked = true
             }
         }
+        return marked
+    }
+
+    private fun Preferences.hasShownJob(jobId: String, isFolderJob: Boolean): Boolean {
+        val key = if (isFolderJob) SHOWN_FOLDER_JOB_IDS else SHOWN_BATCH_JOB_IDS
+        val legacyKey = if (isFolderJob) SHOWN_FOLDER_JOB_RESULT else SHOWN_BATCH_JOB_RESULT
+        return jobId in this[key].orEmpty() || this[legacyKey]?.substringAfter(':') == jobId
     }
 
     internal suspend fun beginRefresh(expected: SessionTokens, requestId: String): String? {

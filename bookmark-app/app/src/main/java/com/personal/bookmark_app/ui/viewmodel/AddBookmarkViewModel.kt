@@ -54,7 +54,7 @@ class AddBookmarkViewModel @Inject constructor(
     private var tagLoadJob: Job? = null
     private var pendingShare: SharedBookmark? = null
     private var pendingBrowserResult: (() -> Unit)? = null
-    private val _state = MutableStateFlow(AddBookmarkUiState())
+    private val _state = MutableStateFlow(AddBookmarkUiState(isSaved = savedState["bookmarkSaved"] ?: false))
     val uiState = _state.asStateFlow()
 
     private fun restoreUiState(draft: Bundle): AddBookmarkUiState {
@@ -85,7 +85,7 @@ class AddBookmarkViewModel @Inject constructor(
     }
 
     init {
-        loadFolders()
+        if (!_state.value.isSaved) loadFolders()
     }
 
     fun edit(transform: (AddBookmarkUiState) -> AddBookmarkUiState) {
@@ -476,7 +476,9 @@ class AddBookmarkViewModel @Inject constructor(
                 _state.value = _state.value.copy(isSaving = false, errorMessage = message)
                 return@request
             }
+            savedState["bookmarkSaved"] = true
             savedState.remove<Bundle>("draft")
+            resetBrowserImport()
             folderChanges.notifyChanged()
             _state.value = _state.value.copy(isSaving = false, isSaved = true)
         }

@@ -52,7 +52,6 @@ fun RegisterScreen(
     onConfirmPasswordChange: (String) -> Unit,
     onPasswordVisibilityChange: () -> Unit,
     onConfirmPasswordVisibilityChange: () -> Unit,
-//    onTermsAcceptedChange: (Boolean) -> Unit,
     onRegisterClick: () -> Unit,
     onGoogleRegisterClick: () -> Unit,
     onBackClick: () -> Unit,
@@ -476,26 +475,3 @@ private fun LoginSection(
         )
     }
 }
-
-
-//@Composable
-//private fun TermsAgreement(
-//    checked: Boolean,
-//    onCheckedChange: (Boolean) -> Unit
-//) {
-//    Row(
-//        modifier = Modifier.fillMaxWidth(),
-//        verticalAlignment = Alignment.CenterVertically
-//    ) {
-//        Checkbox(
-//            checked = checked,
-//            onCheckedChange = onCheckedChange
-//        )
-//
-//        Text(
-//            text = "我已閱讀並同意聚藏使用者條款與隱私權保護政策",
-//            style = MaterialTheme.typography.bodySmall,
-//            color = MaterialTheme.colorScheme.onSurfaceVariant
-//        )
-//    }
-//}

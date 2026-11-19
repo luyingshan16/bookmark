@@ -25,12 +25,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -303,7 +303,7 @@ fun PersonalProfileDialog(
                 }
 
                 Spacer(
-                    modifier = Modifier.height(10.dp)
+                    modifier = Modifier.height(12.dp)
                 )
 
                 // --------------------------------
@@ -330,7 +330,7 @@ fun PersonalProfileDialog(
                     ) {
                         Row(
                             modifier = Modifier
-                                .heightIn(min = 48.dp)
+                                .heightIn(min = 52.dp)
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(11.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -353,7 +353,7 @@ fun PersonalProfileDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 25.dp, top = 12.dp, end = 25.dp)
-                            .heightIn(min = 48.dp),
+                            .heightIn(min = 52.dp),
                         shape = RoundedCornerShape(8.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                     ) {
@@ -376,7 +376,7 @@ fun PersonalProfileDialog(
                         .fillMaxWidth()
                         .padding(
                             horizontal = 25.dp,
-                            vertical = 10.dp
+                            vertical = 12.dp
                         )
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(
@@ -384,7 +384,7 @@ fun PersonalProfileDialog(
                         )
                         .padding(
                             horizontal = 14.dp,
-                            vertical = 10.dp
+                            vertical = 12.dp
                         ),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically

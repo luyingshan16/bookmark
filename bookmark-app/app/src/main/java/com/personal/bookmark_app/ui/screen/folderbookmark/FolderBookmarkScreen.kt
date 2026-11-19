@@ -1,9 +1,7 @@
 package com.personal.bookmark_app.ui.screen.folderbookmark
 
-import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import com.personal.bookmark_app.ui.utils.openBookmarkUrl
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,9 +52,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,16 +67,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
-import com.personal.bookmark_app.ui.components.bookmark.BookmarkCard
-import com.personal.bookmark_app.ui.components.bookmark.MoveBookmarkSheet
+import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSourceResponse
+import com.personal.bookmark_app.ui.components.BottomOverscroll
 import com.personal.bookmark_app.ui.components.SearchInputField
 import com.personal.bookmark_app.ui.components.TagInfoPopup
-import com.personal.bookmark_app.data.remote.dto.response.bookmark.BookmarkSourceResponse
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkCard
+import com.personal.bookmark_app.ui.components.bookmark.BookmarkSearchProgress
+import com.personal.bookmark_app.ui.components.bookmark.MoveBookmarkSheet
 import com.personal.bookmark_app.ui.model.toUiModel
 import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.BookmarkBatchActionBar
 import com.personal.bookmark_app.ui.screen.folderbookmark.batchmanage.DeleteSelectedBookmarksDialog
+import com.personal.bookmark_app.ui.utils.openBookmarkUrl
 import com.personal.bookmark_app.ui.viewmodel.FolderBookmarkViewModel
+
+private const val FOLDER_SUMMARY_KEY = "folder_summary"
+private val FolderContentHorizontalPadding = 20.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,21 +103,26 @@ fun FolderBookmarkScreen(
     val bookmarks = viewModel.bookmarks.collectAsLazyPagingItems()
     val isRefreshingBookmarks = bookmarks.loadState.refresh is LoadState.Loading
     val loading = uiState.isLoading || isRefreshingBookmarks
+    var isPullRefreshing by remember { mutableStateOf(false) }
+    val isSearching = loading && !isPullRefreshing
+    val listState = rememberLazyListState()
+    LaunchedEffect(loading) {
+        if (!loading) isPullRefreshing = false
+    }
     val loadFailed =
         bookmarks.loadState.refresh is LoadState.Error || bookmarks.loadState.append is LoadState.Error
     val context = LocalContext.current
     val batchProgress = uiState.batchProgress
     val canRunInBackground = batchProgress?.let { it.supportsBackground && !it.finished } == true
     var hideBatchProgress by remember { mutableStateOf(false) }
-    val batchResult = batchProgress?.takeIf { it.finished }
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(batchResult) {
-        if (batchResult != null) {
+    LaunchedEffect(viewModel) {
+        snapshotFlow { uiState.batchProgress?.takeIf { it.finished } }.collect { batchResult ->
+            if (batchResult == null || !viewModel.consumeBatchResult(batchResult)) return@collect
             snackbarHostState.showSnackbar(
                 message = "${batchResult.action.label}完成：成功 ${batchResult.succeeded} 筆，失敗 ${batchResult.failed} 筆",
                 duration = SnackbarDuration.Short
             )
-            viewModel.consumeBatchResult(batchResult)
         }
     }
     val folderName = uiState.folderName
@@ -284,123 +298,150 @@ fun FolderBookmarkScreen(
 
     ) { innerPadding ->
 
-        PullToRefreshBox(
-            isRefreshing = isRefreshingBookmarks || uiState.isMutating,
-            onRefresh = {
-                if (!busy) {
-                    matchingIds = null
-                    viewModel.refresh()
-                }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 20.dp,
-                    end = 20.dp,
-                    top = 4.dp,
-                    bottom = 20.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        BottomOverscroll(!isSearching && bookmarks.itemCount > 0) { overscrollModifier ->
+            PullToRefreshBox(
+                isRefreshing = isPullRefreshing && loading,
+                onRefresh = {
+                    if (!busy) {
+                        isPullRefreshing = true
+                        matchingIds = null
+                        viewModel.refresh()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
             ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().then(overscrollModifier),
+                    state = listState,
+                    contentPadding = PaddingValues(
+                        start = FolderContentHorizontalPadding,
+                        end = FolderContentHorizontalPadding,
+                        top = 4.dp,
+                        bottom = 20.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
 
-                if (uiState.error != null || loadFailed) {
+                    if (uiState.error != null || loadFailed) {
+                        item {
+                            uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            if (loadFailed && uiState.error == null) {
+                                Text(
+                                    "載入收藏夾失敗，請重試",
+                                    modifier = Modifier.clickable { bookmarks.retry() },
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                    // 搜尋欄位
                     item {
-                        uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        if (loadFailed && uiState.error == null) {
-                            Text(
-                                "載入收藏夾失敗，請重試",
-                                modifier = Modifier.clickable { bookmarks.retry() },
-                                color = MaterialTheme.colorScheme.error
+                        SearchInputField(
+                            query = uiState.searchQuery,
+                            onQueryChange = { query ->
+                                if (query != uiState.searchQuery) isPullRefreshing = false
+                                viewModel.onQueryChange(query)
+                            },
+                            onSearch = viewModel::submitSearch,
+                            placeholder = "搜尋這個收藏夾的內容..."
+                        )
+                    }
+
+                    // 標籤篩選
+                    item {
+                        FolderTagFilter(
+                            availableTags = availableTags,
+                            selectedTags = uiState.selectedTags,
+                            isExpanded = isTagFilterExpanded,
+                            onTagClick = { tag ->
+                                isPullRefreshing = false
+                                viewModel.toggleTag(tag)
+                            },
+                            onClearClick = {
+                                isPullRefreshing = false
+                                viewModel.clearTags()
+                            },
+                            onExpandClick = { isTagFilterExpanded = !isTagFilterExpanded }
+                        )
+                    }
+
+                    // 收藏數量與排序
+                    item(key = FOLDER_SUMMARY_KEY) {
+                        FolderBookmarkHeader(
+                            count = uiState.totalCount,
+                            selectedCount = selectedCount,
+                            isBatchManaging = isBatchManaging,
+                            isNewestFirst = uiState.isNewestFirst,
+                            onSortClick = {
+                                isPullRefreshing = false
+                                viewModel.toggleSortOrder()
+                            }
+                        )
+                    }
+
+                    // 收藏清單
+                    if (bookmarks.itemCount == 0 && !loading && !loadFailed && uiState.error == null) {
+
+                        item {
+                            EmptyBookmarkView()
+                        }
+
+                    } else if (!isSearching) {
+                        items(
+                            count = bookmarks.itemCount,
+                            key = bookmarks.itemKey { it.id }
+                        ) { index ->
+                            val response = bookmarks[index] ?: return@items
+                            val bookmark = response.toUiModel(bookmarkSources)
+
+                            BookmarkCard(
+                                item = bookmark,
+                                showActions = !busy && !isBatchManaging,
+                                isBatchManaging = isBatchManaging,
+                                isSelected = bookmark.id in selectedBookmarkIds,
+
+                                onSelectionClick = {
+                                    if (busy) return@BookmarkCard
+                                    toggleBookmarkSelection(bookmark.id)
+                                },
+
+                                onClick = {
+                                    if (busy) return@BookmarkCard
+                                    if (isBatchManaging) {
+                                        toggleBookmarkSelection(bookmark.id)
+                                    } else {
+                                        openBookmarkUrl(context, response.url)
+                                    }
+                                },
+
+                                onEditTitleClick = { viewModel.update(response, title = it) },
+                                onEditNoteClick = { viewModel.update(response, note = it) },
+                                availableTags = availableTags,
+                                onTagsSave = { viewModel.update(response, tags = it) },
+                                onDeleteClick = {
+                                    viewModel.delete(
+                                        listOf(bookmark.id),
+                                        onRemoved = { removed ->
+                                            if (removed.isNotEmpty()) matchingIds = null
+                                            selectedBookmarkIds -= removed
+                                        })
+                                },
+                                onMoveClick = { openMoveSheet(listOf(bookmark.id)) }
                             )
                         }
                     }
                 }
-                // 搜尋欄位
-                item {
-                    SearchInputField(
-                        query = uiState.searchQuery,
-                        onQueryChange = viewModel::onQueryChange,
-                        placeholder = "搜尋這個收藏夾的內容..."
-                    )
-                }
-
-                // 標籤篩選
-                item {
-                    FolderTagFilter(
-                        availableTags = availableTags,
-                        selectedTags = uiState.selectedTags,
-                        isExpanded = isTagFilterExpanded,
-                        onTagClick = viewModel::toggleTag,
-                        onClearClick = viewModel::clearTags,
-                        onExpandClick = { isTagFilterExpanded = !isTagFilterExpanded }
-                    )
-                }
-
-                // 收藏數量與排序
-                item {
-                    FolderBookmarkHeader(
-                        count = uiState.totalCount,
-                        selectedCount = selectedCount,
-                        isBatchManaging = isBatchManaging,
-                        isNewestFirst = uiState.isNewestFirst,
-                        onSortClick = viewModel::toggleSortOrder
-                    )
-                }
-
-                // 收藏清單
-                if (bookmarks.itemCount == 0 && !loading && !loadFailed && uiState.error == null) {
-
-                    item {
-                        EmptyBookmarkView()
+                if (isSearching) {
+                    val layout = listState.layoutInfo
+                    val summary = layout.visibleItemsInfo.firstOrNull { it.key == FOLDER_SUMMARY_KEY }
+                    val topPadding = with(LocalDensity.current) {
+                        val resultsTop = summary?.let { it.offset + it.size + layout.mainAxisItemSpacing } ?: 0
+                        val maxTop = (layout.viewportSize.height - 80.dp.roundToPx()).coerceAtLeast(0)
+                        resultsTop.coerceIn(0, maxTop).toDp()
                     }
-
-                } else {
-                    items(
-                        count = bookmarks.itemCount,
-                        key = bookmarks.itemKey { it.id }
-                    ) { index ->
-                        val response = bookmarks[index] ?: return@items
-                        val bookmark = response.toUiModel(bookmarkSources)
-
-                        BookmarkCard(
-                            item = bookmark,
-                            showActions = !busy && !isBatchManaging,
-                            isBatchManaging = isBatchManaging,
-                            isSelected = bookmark.id in selectedBookmarkIds,
-
-                            onSelectionClick = {
-                                if (busy) return@BookmarkCard
-                                toggleBookmarkSelection(bookmark.id)
-                            },
-
-                            onClick = {
-                                if (busy) return@BookmarkCard
-                                if (isBatchManaging) {
-                                    toggleBookmarkSelection(bookmark.id)
-                                } else {
-                                    openBookmarkUrl(context, response.url)
-                                }
-                            },
-
-                            onEditTitleClick = { viewModel.update(response, title = it) },
-                            onEditNoteClick = { viewModel.update(response, note = it) },
-                            availableTags = availableTags,
-                            onTagsSave = { viewModel.update(response, tags = it) },
-                            onDeleteClick = {
-                                viewModel.delete(
-                                    listOf(bookmark.id),
-                                    onRemoved = { removed ->
-                                        if (removed.isNotEmpty()) matchingIds = null
-                                        selectedBookmarkIds -= removed
-                                    })
-                            },
-                            onMoveClick = { openMoveSheet(listOf(bookmark.id)) }
-                        )
-                    }
+                    BookmarkSearchProgress(Modifier.fillMaxSize().padding(top = topPadding))
                 }
             }
         }
@@ -460,6 +501,12 @@ private fun FolderBookmarkTopBar(
     onBackClick: () -> Unit,
     onBatchManageClick: () -> Unit
 ) {
+    val buttonHorizontalPadding = 12.dp
+    // Material 3 already adds a 4.dp inset at the end of the app bar.
+    val appBarActionEndPadding = FolderContentHorizontalPadding - 4.dp
+    val buttonEndPadding = if (isBatchManaging) appBarActionEndPadding
+        else appBarActionEndPadding - buttonHorizontalPadding
+
     TopAppBar(
         title = {
             Text(
@@ -485,19 +532,19 @@ private fun FolderBookmarkTopBar(
         actions = {
             Surface(
                 modifier = Modifier
-                    .padding(end = 16.dp)
+                    .padding(end = buttonEndPadding)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable(onClick = onBatchManageClick),
                 color = if (isBatchManaging) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.surfaceVariant
+                    Color.Transparent
                 },
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(
-                        horizontal = 12.dp,
+                        horizontal = buttonHorizontalPadding,
                         vertical = 8.dp
                     ),
                     verticalAlignment = Alignment.CenterVertically,
@@ -514,7 +561,7 @@ private fun FolderBookmarkTopBar(
                         tint = if (isBatchManaging) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.primary
                         }
                     )
 
@@ -525,7 +572,7 @@ private fun FolderBookmarkTopBar(
                         color = if (isBatchManaging) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
-                            MaterialTheme.colorScheme.onSurface
+                            MaterialTheme.colorScheme.primary
                         }
                     )
                 }
@@ -553,7 +600,7 @@ private fun FolderTagFilter(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(
             1.dp,
             MaterialTheme.colorScheme.outlineVariant
@@ -606,7 +653,7 @@ private fun FolderTagFilter(
                                 onDismiss = {
                                     showTagInfo = false
                                 },
-                                message = "標籤由收藏自動彙整，若該標籤的文章全數刪除或移出，標籤亦會同步移除。"
+                                message = "標籤由收藏自動彙整，若持有該標籤的文章全數刪除或移出，標籤亦會同步移除。"
                             )
                         }
                     }
@@ -686,8 +733,9 @@ private fun FolderTagFilter(
                             color = if (isSelected) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.surface
-                            }
+                                Color.Transparent
+                            },
+                            border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp),

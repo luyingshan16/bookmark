@@ -2,13 +2,18 @@ package com.personal.bookmark_app.ui.screen.addbookmark
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -35,24 +40,30 @@ internal fun BookmarkSourceField(
     onReparseClick: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("來源網址 URL", style = MaterialTheme.typography.bodySmall)
-            ReparseAction(
-                isParsing = isParsing,
-                enabled = !isParsing && !isSaving && sourceUrl.isNotBlank(),
-                onClick = onReparseClick
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "來源網址 URL",
+                    modifier = Modifier.padding(top = 18.dp, bottom = 8.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                ReparseAction(
+                    isParsing = isParsing,
+                    enabled = !isParsing && !isSaving && sourceUrl.isNotBlank(),
+                    onClick = onReparseClick
+                )
+            }
+            TextFieldView(
+                value = sourceUrl,
+                onValueChange = onSourceUrlChange,
+                placeholder = "https://",
+                enabled = !isSaving
             )
         }
-        TextFieldView(
-            value = sourceUrl,
-            onValueChange = onSourceUrlChange,
-            placeholder = "https://",
-            enabled = !isSaving
-        )
         if (isParsing) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
@@ -77,26 +88,31 @@ private fun ReparseAction(
         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     }
 
-    Row(
+    // Include the existing card inset and the gap above the URL field in the click target.
+    Box(
         modifier = Modifier
+            .widthIn(min = 112.dp)
+            .fillMaxHeight()
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(start = 8.dp, end = 8.dp, top = 18.dp, bottom = 8.dp),
+        contentAlignment = Alignment.CenterEnd
     ) {
-        Icon(
-            imageVector = Icons.Default.Refresh,
-            contentDescription = null,
-            tint = contentColor,
-            modifier = Modifier.size(16.dp)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(16.dp)
+            )
 
-        Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-        Text(
-            text = if (isParsing) "解析中…" else "重新解析",
-            style = MaterialTheme.typography.bodySmall,
-            color = contentColor
-        )
+            Text(
+                text = if (isParsing) "解析中…" else "重新解析",
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor
+            )
+        }
     }
 }

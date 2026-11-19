@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,7 +46,8 @@ internal fun BookmarkTagSection(
     onAddCustomTagClick: () -> Unit
 ) {
     var showTagInfo by remember { mutableStateOf(false) }
-    var isTagsExpanded by remember { mutableStateOf(false) }
+    var isTagsExpanded by rememberSaveable { mutableStateOf(true) }
+    val visibleTags = if (isTagsExpanded) tags else emptyList()
     val canAddTag = selectedTagIds.size < 5
 
     // 標籤標題及選取數量
@@ -96,7 +98,7 @@ internal fun BookmarkTagSection(
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
             ) {
                 Text(
                     text = "已選 ${selectedTagIds.size}/5 個",
@@ -105,7 +107,7 @@ internal fun BookmarkTagSection(
                         vertical = 5.dp
                     ),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -147,10 +149,9 @@ internal fun BookmarkTagSection(
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        maxLines = if (isTagsExpanded) Int.MAX_VALUE else 2
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        tags.forEach { tag ->
+        visibleTags.forEach { tag ->
             val isSelected = tag.id in selectedTagIds
 
             Surface(

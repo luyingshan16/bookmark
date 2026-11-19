@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -51,8 +53,11 @@ import com.personal.bookmark_app.ui.viewmodel.AddBookmarkViewModel
 import com.personal.bookmark_app.ui.viewmodel.AuthEvent
 import com.personal.bookmark_app.ui.viewmodel.AuthViewModel
 import com.personal.bookmark_app.ui.viewmodel.DailyPicksViewModel
+import com.personal.bookmark_app.ui.viewmodel.HomeViewModel
 import com.personal.bookmark_app.ui.viewmodel.NavigationViewModel
 import kotlinx.coroutines.CancellationException
+
+private const val REFRESH_HOME_AFTER_SHARE = "refresh_home_after_share"
 
 @Composable
 fun AppNavigation(
@@ -209,8 +214,10 @@ private fun SessionNavigation(
     }
 
     // Keep the share pending until the form closes, including across session invalidation.
+    var closedShareId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(sharedBookmark?.id, currentBackStackEntry?.destination?.route) {
         if (signedIn && sharedBookmark != null && currentBackStackEntry != null &&
+            sharedBookmark.id != closedShareId &&
             navController.currentDestination?.route != Screen.ADD_BOOKMARK
         ) {
             navController.navigate(Screen.ADD_BOOKMARK) { launchSingleTop = true }
@@ -334,11 +341,19 @@ private fun SessionNavigation(
         // ============================================
 
         // Home
-        composable(Screen.HOME) {
+        composable(Screen.HOME) { entry ->
             if (profile == null) return@composable
+
+            val homeViewModel: HomeViewModel = hiltViewModel(entry)
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME, lifecycleOwner = entry) {
+                if (entry.savedStateHandle.remove<Boolean>(REFRESH_HOME_AFTER_SHARE) == true) {
+                    homeViewModel.refreshFolders()
+                }
+            }
 
             HomeScreen(
                 initialProfile = profile,
+                homeViewModel = homeViewModel,
                 onSearchClick = { navController.navigate(Screen.SEARCH_BOOKMARK) },
                 onAddBookmarkClick = { navController.navigate(Screen.ADD_BOOKMARK) },
                 onDailyPicksClick = { navController.navigate(Screen.DAILY_PICKS) },
@@ -386,13 +401,23 @@ private fun SessionNavigation(
             )
             var receivedShareId by rememberSaveable { mutableStateOf<String?>(null) }
             LaunchedEffect(sharedBookmark?.id, state.isSaving, state.isSaved) {
-                sharedBookmark?.takeUnless { state.isSaving || state.isSaved }?.let {
+                sharedBookmark?.takeUnless { it.id == closedShareId || state.isSaving || state.isSaved }?.let {
                     vm.receiveShare(it)
                     receivedShareId = it.id
                 }
             }
             val closeForm = {
-                receivedShareId?.let(onShareHandled)
+                val shareId = receivedShareId ?: sharedBookmark?.id?.takeUnless { state.isSaved }
+                shareId?.let { id ->
+                    if (!state.isSaved) {
+                        navController.previousBackStackEntry
+                            ?.takeIf { it.destination.route == Screen.HOME }
+                            ?.savedStateHandle
+                            ?.set(REFRESH_HOME_AFTER_SHARE, true)
+                    }
+                    closedShareId = id
+                    onShareHandled(id)
+                }
                 navigateBackSafely()
             }
             BackHandler {

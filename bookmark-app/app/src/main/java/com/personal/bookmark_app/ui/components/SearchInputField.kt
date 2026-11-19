@@ -1,5 +1,6 @@
 package com.personal.bookmark_app.ui.components
 
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -9,6 +10,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
@@ -16,9 +18,11 @@ import androidx.compose.ui.unit.dp
 fun SearchInputField(
     query: String,
     onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String
 ) {
+    val keyboard = LocalSoftwareKeyboardController.current
     TextFieldView(
         value = query,
         onValueChange = onQueryChange,
@@ -48,6 +52,10 @@ fun SearchInputField(
         },
         keyboardOptions = KeyboardOptions(
             imeAction = ImeAction.Search
-        )
+        ),
+        keyboardActions = KeyboardActions(onSearch = {
+            onSearch()
+            keyboard?.hide()
+        })
     )
 }

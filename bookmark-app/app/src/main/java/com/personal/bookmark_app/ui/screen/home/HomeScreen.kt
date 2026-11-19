@@ -41,12 +41,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,6 +54,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,8 +81,11 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import com.personal.bookmark_app.BuildConfig
 import com.personal.bookmark_app.data.remote.dto.response.user.UserProfileResponse
+import com.personal.bookmark_app.data.remote.resolveAvatarUrl
 import com.personal.bookmark_app.ui.components.LinkGoogleDialog
+import com.personal.bookmark_app.ui.components.BottomOverscroll
 import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
 import com.personal.bookmark_app.ui.components.requestGoogleIdToken
 import com.personal.bookmark_app.ui.model.FolderDisplayMode
@@ -99,7 +103,8 @@ fun HomeScreen(
     onDailyPicksClick: () -> Unit = {},
     onFolderClick: (FolderUiModel) -> Unit = {},
     onAvatarSelected: (Uri) -> Unit = {},
-    onLogoutClick: () -> Unit = {}
+    onLogoutClick: () -> Unit = {},
+    homeViewModel: HomeViewModel = hiltViewModel()
 ) {
     var showFolderManagement by rememberSaveable {
         mutableStateOf(false)
@@ -110,7 +115,6 @@ fun HomeScreen(
         mutableStateOf<FolderUiModel?>(null)
     }
 
-    val homeViewModel: HomeViewModel = hiltViewModel()
     val folders = homeViewModel.folders.collectAsLazyPagingItems()
     val uiState by homeViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -120,21 +124,30 @@ fun HomeScreen(
     }
 
     val snackbarHost = remember { SnackbarHostState() }
-    val batchJobResult = uiState.batchJobResult
-    LaunchedEffect(batchJobResult) {
-        if (batchJobResult != null) {
+    LaunchedEffect(uiState.batchJobStatusUnavailable) {
+        if (uiState.batchJobStatusUnavailable) {
+            val result = snackbarHost.showSnackbar(
+                message = "暫時無法取得批量操作進度",
+                actionLabel = "重試",
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) homeViewModel.refreshLatestBatchJob()
+        }
+    }
+    LaunchedEffect(homeViewModel) {
+        snapshotFlow { uiState.batchJobResult }.collect { batchJobResult ->
+            if (batchJobResult == null || !homeViewModel.consumeBatchJobResult(batchJobResult)) return@collect
             val status = batchJobResult.status
             val action = if (status.deleting) "刪除" else "移動"
             snackbarHost.showSnackbar(
                 message = "${action}完成：成功 ${status.succeeded} 筆，失敗 ${status.failed} 筆",
                 duration = SnackbarDuration.Short
             )
-            homeViewModel.consumeBatchJobResult(batchJobResult)
         }
     }
-    val folderJobResult = uiState.folderJobResult
-    LaunchedEffect(folderJobResult) {
-        if (folderJobResult != null) {
+    LaunchedEffect(homeViewModel) {
+        snapshotFlow { uiState.folderJobResult }.collect { folderJobResult ->
+            if (folderJobResult == null || !homeViewModel.consumeFolderJobResult(folderJobResult)) return@collect
             val status = folderJobResult.status
             val action = if (status.deleting) "刪除" else "移動"
             snackbarHost.showSnackbar(
@@ -142,7 +155,6 @@ fun HomeScreen(
                     else status.errorMessage ?: "收藏夾${action}失敗，請稍後再試",
                 duration = SnackbarDuration.Short
             )
-            homeViewModel.consumeFolderJobResult(folderJobResult)
         }
     }
 
@@ -174,29 +186,6 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            if (uiState.batchJobStatusUnavailable) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "暫時無法取得批量操作進度",
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    TextButton(onClick = homeViewModel::refreshLatestBatchJob) { Text("重試") }
-                }
-            }
-            uiState.folderJob?.takeUnless { it.finished }?.let { job ->
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(if (job.deleting) "正在刪除收藏夾..." else "正在移動收藏夾裡的所有資料...",
-                        style = MaterialTheme.typography.bodyMedium)
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
-            }
             DailyPicksCard(
                 onClick = onDailyPicksClick
             )
@@ -218,11 +207,9 @@ fun HomeScreen(
                         showFolderManagement = true
                     },
                     onFolderClick = { folder ->
-                        // 判斷資料夾是否有收藏
                         if (folder.count == 0L) {
                             selectedEmptyFolder = folder
                         } else {
-                            // 有收藏則維持原本的導頁行為
                             onFolderClick(folder)
                         }
                     }
@@ -232,13 +219,22 @@ fun HomeScreen(
     }
 
     var hiddenBatchJobId by rememberSaveable { mutableStateOf<String?>(null) }
-    uiState.latestBatchJob?.takeIf { !it.finished && it.id != hiddenBatchJobId }?.let { move ->
-        BookmarkBatchIndicator(
-            title = if (move.deleting) "刪除中…" else "移動中…",
-            processed = move.processed,
-            total = move.total,
-            onBackground = { hiddenBatchJobId = move.id }
-        )
+    var hiddenFolderJobId by rememberSaveable { mutableStateOf<String?>(null) }
+    if (!showFolderManagement && selectedEmptyFolder == null) {
+        val folderJob = uiState.folderJob?.takeIf { !it.finished && it.id != hiddenFolderJobId }
+        val batchJob = uiState.latestBatchJob?.takeIf { !it.finished && it.id != hiddenBatchJobId }
+        when {
+            folderJob != null -> BookmarkBatchIndicator(
+                title = if (folderJob.deleting) "正在刪除收藏夾…" else "正在移動收藏夾裡的所有資料…",
+                onBackground = { hiddenFolderJobId = folderJob.id }
+            )
+            batchJob != null -> BookmarkBatchIndicator(
+                title = if (batchJob.deleting) "刪除中…" else "移動中…",
+                processed = batchJob.processed,
+                total = batchJob.total,
+                onBackground = { hiddenBatchJobId = batchJob.id }
+            )
+        }
     }
 
     // 收藏夾管理 Bottom Sheet
@@ -304,7 +300,7 @@ private fun HomeTopAppBar(
     }
     var showLinkGoogleDialog by remember { mutableStateOf(false) }
     val email = profile.email
-    val avatarImageUrl = profile.avatarImageUrl
+    val avatarImageUrl = resolveAvatarUrl(profile.avatarImageUrl, BuildConfig.API_BASE_URL)
 
     TopAppBar(
         title = {
@@ -665,54 +661,56 @@ private fun FolderSection(
         )
 
         // 根據顯示方式切換內容
-        when (displayMode) {
-            FolderDisplayMode.GRID -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = folderListModifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(
-                        bottom = 20.dp
-                    ),
-                    userScrollEnabled = true
-                ) {
-                    items(
-                        count = folders.itemCount,
-                        key = folders.itemKey { it.id }
-                    ) { index ->
-                        val folder = folders[index] ?: return@items
-                        FolderCard(
-                            folder = folder,
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = {
-                                onFolderClick(folder)
-                            }
-                        )
+        BottomOverscroll(folders.itemCount > 0) { overscrollModifier ->
+            when (displayMode) {
+                FolderDisplayMode.GRID -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = folderListModifier.weight(1f).then(overscrollModifier),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(
+                            bottom = 20.dp
+                        ),
+                        userScrollEnabled = true
+                    ) {
+                        items(
+                            count = folders.itemCount,
+                            key = folders.itemKey { it.id }
+                        ) { index ->
+                            val folder = folders[index] ?: return@items
+                            FolderCard(
+                                folder = folder,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    onFolderClick(folder)
+                                }
+                            )
+                        }
                     }
                 }
-            }
 
-            FolderDisplayMode.LIST -> {
-                LazyColumn(
-                    modifier = folderListModifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(
-                        bottom = 20.dp
-                    ),
-                    userScrollEnabled = true
-                ) {
-                    items(
-                        count = folders.itemCount,
-                        key = folders.itemKey { it.id }
-                    ) { index ->
-                        val folder = folders[index] ?: return@items
-                        FolderListItem(
-                            folder = folder,
-                            onClick = {
-                                onFolderClick(folder)
-                            }
-                        )
+                FolderDisplayMode.LIST -> {
+                    LazyColumn(
+                        modifier = folderListModifier.weight(1f).then(overscrollModifier),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(
+                            bottom = 20.dp
+                        ),
+                        userScrollEnabled = true
+                    ) {
+                        items(
+                            count = folders.itemCount,
+                            key = folders.itemKey { it.id }
+                        ) { index ->
+                            val folder = folders[index] ?: return@items
+                            FolderListItem(
+                                folder = folder,
+                                onClick = {
+                                    onFolderClick(folder)
+                                }
+                            )
+                        }
                     }
                 }
             }

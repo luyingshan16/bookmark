@@ -28,6 +28,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+internal const val SEARCH_INPUT_DEBOUNCE_MS = 700L
+
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchBookmarkViewModel @Inject constructor(
@@ -93,14 +95,18 @@ class SearchBookmarkViewModel @Inject constructor(
 
     fun onQueryChange(query: String) {
         _uiState.update { it.copy(query = query) }
-        scheduleSearch()
+        if (query.isBlank()) submitSearch() else scheduleSearch()
+    }
+
+    fun submitSearch() {
+        searchJob?.cancel()
+        applySearchFilter()
     }
 
     fun onSourceSelected(source: String?) {
         if (source == _uiState.value.selectedSource) return
-        searchJob?.cancel()
         _uiState.update { it.copy(selectedSource = source) }
-        applySearchFilter()
+        submitSearch()
     }
 
     private fun scheduleSearch() {
@@ -110,7 +116,7 @@ class SearchBookmarkViewModel @Inject constructor(
         if (nextFilter == appliedFilter) return
 
         searchJob = viewModelScope.launch {
-            delay(300)
+            delay(SEARCH_INPUT_DEBOUNCE_MS)
             applySearchFilter()
         }
     }

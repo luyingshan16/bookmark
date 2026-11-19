@@ -1,6 +1,5 @@
 package com.personal.bookmark_app
 
-import java.util.UUID
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,6 +18,8 @@ import dagger.hilt.android.AndroidEntryPoint
 
 data class SharedBookmark(val id: String, val text: String, val title: String)
 
+private const val HANDLED_SHARE_IDS = "handled_share_ids"
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private var sharedBookmark by mutableStateOf<SharedBookmark?>(null)
@@ -32,13 +33,13 @@ class MainActivity : ComponentActivity() {
                 savedInstanceState.getString("shareText").orEmpty(),
                 savedInstanceState.getString("shareTitle").orEmpty()
             )
-        }
+        }?.takeUnless { wasShareHandled(it.id) }
         if (savedInstanceState == null) receiveShare(intent)
         enableEdgeToEdge()
         setContent {
             BookmarkappTheme {
                 AppNavigation(sharedBookmark = sharedBookmark, onShareHandled = { id ->
-                    if (sharedBookmark?.id == id) sharedBookmark = null
+                    markShareHandled(id)
                 })
             }
         }
@@ -60,7 +61,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
         receiveShare(intent)
     }
 
@@ -74,13 +74,23 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun receiveShare(intent: Intent) {
-        if (intent.action != Intent.ACTION_SEND || intent.type?.startsWith("text/") != true) return
-        val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
-            ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-                .orEmpty()
+        if (intent.action != Intent.ACTION_MAIN) return
+        val id = intent.getStringExtra(BOOKMARK_SHARE_ID) ?: return
+        if (sharedBookmark?.id == id || wasShareHandled(id)) return
         sharedBookmark = SharedBookmark(
-            UUID.randomUUID().toString(), text.take(20000),
+            id,
+            intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty().take(20000),
             intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty().take(255)
         )
+    }
+
+    private fun wasShareHandled(id: String): Boolean =
+        id in getPreferences(MODE_PRIVATE).getStringSet(HANDLED_SHARE_IDS, emptySet()).orEmpty()
+
+    private fun markShareHandled(id: String) {
+        val preferences = getPreferences(MODE_PRIVATE)
+        val handledIds = preferences.getStringSet(HANDLED_SHARE_IDS, emptySet()).orEmpty()
+        preferences.edit().putStringSet(HANDLED_SHARE_IDS, handledIds + id).apply()
+        if (sharedBookmark?.id == id) sharedBookmark = null
     }
 }

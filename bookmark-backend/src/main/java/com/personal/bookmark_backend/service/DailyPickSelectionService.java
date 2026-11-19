@@ -21,7 +21,6 @@ public class DailyPickSelectionService {
     private final BookmarkRepository bookmarks;
     private final DailyPickSelectionRepository selections;
     private final UserRepository users;
-    private final PasswordResetRateLimiter rateLimiter;
 
     public record Selection(LocalDate date, long count, List<Bookmark> picks) {
     }
@@ -60,9 +59,6 @@ public class DailyPickSelectionService {
 
     @Transactional
     public Selection select(Long userId, boolean refresh, Long includeId) {
-        if (refresh) {
-            rateLimiter.checkSource("daily-picks-refresh", userId.toString(), 20);
-        }
         lockUser(userId);
         LocalDate day = selectionDateAt(Instant.now());
         var rows = selections.findAllByUserIdOrderByPositionAsc(userId);

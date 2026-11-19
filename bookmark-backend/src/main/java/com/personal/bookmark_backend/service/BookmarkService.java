@@ -78,12 +78,12 @@ public class BookmarkService {
 
     @Transactional(readOnly = true)
     public Page<Bookmark> searchBookmarks(Long userId, String query, String source, Pageable pageable) {
-        return bookmarkRepository.searchForUser(userId, query, source, pageable);
+        return bookmarkRepository.searchForUser(userId, escapeSearchKeyword(query), source, pageable);
     }
 
     @Transactional(readOnly = true)
     public Slice<Bookmark> searchBookmarkSlice(Long userId, String query, String source, Pageable pageable) {
-        return bookmarkRepository.searchSliceForUser(userId, query, source, pageable);
+        return bookmarkRepository.searchSliceForUser(userId, escapeSearchKeyword(query), source, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -126,10 +126,14 @@ public class BookmarkService {
     @Transactional(readOnly = true)
     public Map<String, Long> countSearchResultsBySource(Long userId, String query) {
         Map<String, Long> counts = new LinkedHashMap<>();
-        for (Object[] row : bookmarkRepository.countSearchResultsBySource(userId, query)) {
+        for (Object[] row : bookmarkRepository.countSearchResultsBySource(userId, escapeSearchKeyword(query))) {
             counts.put((String) row[0], (Long) row[1]);
         }
         return counts;
+    }
+
+    private String escapeSearchKeyword(String query) {
+        return query == null ? null : query.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
 

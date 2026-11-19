@@ -90,44 +90,58 @@ class FolderBookmarkViewModel @Inject constructor(
 
     fun onQueryChange(query: String) {
         _state.value = _state.value.copy(searchQuery = query)
-        scheduleFilter()
+        if (query.isBlank()) {
+            submitSearch()
+            return
+        }
+        filterJob?.cancel()
+        if (currentFilter() == filter) return
+        filterJob = viewModelScope.launch {
+            delay(SEARCH_INPUT_DEBOUNCE_MS)
+            applyFilter()
+        }
+    }
+
+    fun submitSearch() {
+        filterJob?.cancel()
+        applyFilter()
     }
 
     fun toggleTag(tag: String) {
         val selected = _state.value.selectedTags
         _state.value =
             _state.value.copy(selectedTags = if (tag in selected) selected - tag else selected + tag)
-        scheduleFilter()
+        submitSearch()
     }
 
     fun clearTags() {
         _state.value = _state.value.copy(selectedTags = emptySet())
-        scheduleFilter()
+        submitSearch()
     }
 
     fun toggleSortOrder() {
         _state.value = _state.value.copy(isNewestFirst = !_state.value.isNewestFirst)
-        scheduleFilter()
+        submitSearch()
     }
 
-    private fun scheduleFilter() {
-        filterJob?.cancel()
+    private fun currentFilter(): FolderFilter {
         val state = _state.value
-        val nextFilter = FolderFilter(state.searchQuery, state.selectedTags, state.isNewestFirst)
+        return FolderFilter(state.searchQuery.trim(), state.selectedTags, state.isNewestFirst)
+    }
+
+    private fun applyFilter() {
+        val nextFilter = currentFilter()
         if (nextFilter == filter) return
-        filterJob = viewModelScope.launch {
-            delay(250)
-            filter = nextFilter
-            _state.value = _state.value.copy(totalCount = 0)
-            pages.value = createPages(nextFilter)
-        }
+        filter = nextFilter
+        _state.value = _state.value.copy(totalCount = 0)
+        pages.value = createPages(nextFilter)
     }
 
     private fun updateAvailableTags(tags: List<String>) {
         val selected = _state.value.selectedTags
         val remaining = selected.intersect(tags.toSet())
         _state.value = _state.value.copy(tags = tags, selectedTags = remaining)
-        if (remaining != selected) scheduleFilter()
+        if (remaining != selected) submitSearch()
     }
 
     fun refresh() {
@@ -163,19 +177,18 @@ class FolderBookmarkViewModel @Inject constructor(
     }
 
     fun isBookmarkFilterApplied(): Boolean {
-        val state = _state.value
-        return filter.query == state.searchQuery && filter.tags == state.selectedTags &&
-                filter.newestFirst == state.isNewestFirst
+        return filter == currentFilter()
     }
 
     fun getMatchingIds(onLoaded: (Set<String>) -> Unit) = mutate {
-        val state = _state.value
+        val requested = currentFilter()
         val ids = bookmarkApi.getMatchingFolderBookmarkIds(
             folderId,
-            state.searchQuery,
-            state.selectedTags.toList()
+            requested.query,
+            requested.tags.toList()
         )
-        if (_state.value.searchQuery == state.searchQuery && _state.value.selectedTags == state.selectedTags) {
+        val current = currentFilter()
+        if (current.query == requested.query && current.tags == requested.tags) {
             onLoaded(ids.map { it.toString() }.toSet())
         }
     }
@@ -218,13 +231,14 @@ class FolderBookmarkViewModel @Inject constructor(
         }
     }
 
-    suspend fun consumeBatchResult(result: BookmarkBatchProgress) {
-        result.resultReceipt?.let { receipt ->
+    suspend fun consumeBatchResult(result: BookmarkBatchProgress): Boolean {
+        val marked = result.resultReceipt?.let { receipt ->
             preferences.markJobResultShown(receipt.sessionId, receipt.jobId)
-        }
+        } ?: true
         if (_state.value.batchProgress === result && result.finished) {
             _state.value = _state.value.copy(batchProgress = null)
         }
+        return marked
     }
 
     fun delete(ids: List<String>, onRemoved: (Set<String>) -> Unit, onSuccess: () -> Unit = {}) = mutate {

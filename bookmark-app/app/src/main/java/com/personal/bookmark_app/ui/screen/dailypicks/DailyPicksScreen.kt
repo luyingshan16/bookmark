@@ -71,6 +71,7 @@ fun DailyPicksScreen(
     val totalBookmarkCount = uiState.totalBookmarkCount
     val isLoading = uiState.isLoading
     val error = uiState.error
+    val hasError = error != null
     val hasLoaded = uiState.selectionDate != null
 
     Scaffold(
@@ -78,9 +79,10 @@ fun DailyPicksScreen(
         topBar = {
             DailyPicksTopBar(
                 onBackClick = onBackClick,
-                onRefreshClick = viewModel::refreshPicks,
-                showRefreshAction = totalBookmarkCount > 3,
-                refreshEnabled = uiState.canRefresh
+                actionLabel = if (hasError) "重新載入" else "換一組",
+                onActionClick = if (hasError) viewModel::retry else viewModel::refreshPicks,
+                showAction = hasError || totalBookmarkCount > 3,
+                actionEnabled = if (hasError) !isLoading else uiState.canRefresh
             )
         }
     ) { innerPadding ->
@@ -108,14 +110,10 @@ fun DailyPicksScreen(
             ) {
                 if (error != null && hasLoaded) {
                     Text(
-                        text = error.orEmpty(),
+                        text = error,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
-                    TextButton(
-                        onClick = viewModel::retry,
-                        enabled = !isLoading
-                    ) { Text("重新載入") }
                 }
 
                 when {
@@ -126,15 +124,10 @@ fun DailyPicksScreen(
                     }
 
                     !hasLoaded && error != null -> {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = error.orEmpty(),
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            TextButton(onClick = viewModel::retry) {
-                                Text("重新載入")
-                            }
-                        }
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
 
                     // 狀態一：完全沒有收藏
@@ -181,11 +174,13 @@ fun DailyPicksScreen(
 @Composable
 private fun DailyPicksTopBar(
     onBackClick: () -> Unit,
-    onRefreshClick: () -> Unit,
-    showRefreshAction: Boolean,
-    refreshEnabled: Boolean
+    actionLabel: String,
+    onActionClick: () -> Unit,
+    showAction: Boolean,
+    actionEnabled: Boolean
 ) {
     TopAppBar(
+        expandedHeight = 48.dp,
         title = {
             Text(
                 text = "今日拾藏",
@@ -204,14 +199,14 @@ private fun DailyPicksTopBar(
             }
         },
         actions = {
-            if (showRefreshAction) {
+            if (showAction) {
                 TextButton(
-                    onClick = onRefreshClick,
-                    enabled = refreshEnabled
+                    onClick = onActionClick,
+                    enabled = actionEnabled
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Refresh,
-                        contentDescription = "換一組",
+                        contentDescription = null,
                         tint = LocalContentColor.current,
                         modifier = Modifier.size(18.dp)
                     )
@@ -219,7 +214,7 @@ private fun DailyPicksTopBar(
                     Spacer(modifier = Modifier.width(4.dp))
 
                     Text(
-                        text = "換一組",
+                        text = actionLabel,
                         style = MaterialTheme.typography.labelLarge
                     )
                 }

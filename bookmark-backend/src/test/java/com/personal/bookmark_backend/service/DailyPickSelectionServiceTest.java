@@ -23,8 +23,7 @@ class DailyPickSelectionServiceTest {
     BookmarkRepository books = mock(BookmarkRepository.class);
     DailyPickSelectionRepository rows = mock(DailyPickSelectionRepository.class);
     UserRepository users = mock(UserRepository.class);
-    DailyPickSelectionService service = new DailyPickSelectionService(
-            books, rows, users, new PasswordResetRateLimiter());
+    DailyPickSelectionService service = new DailyPickSelectionService(books, rows, users);
     List<DailyPickSelection> data = new ArrayList<>();
     List<Bookmark> all = new ArrayList<>();
 
@@ -114,6 +113,17 @@ class DailyPickSelectionServiceTest {
         var next = service.select(7L, true, null);
         assertEquals(3, next.picks().size());
         assertTrue(next.picks().stream().noneMatch(b -> old.contains(b.getId())));
+    }
+
+    @Test
+    void refreshContinuesBeyondTwentyRequests() {
+        var previous = get();
+        for (int attempt = 0; attempt < 25; attempt++) {
+            var refreshed = service.select(7L, true, null).picks().stream().map(Bookmark::getId).toList();
+            assertEquals(3, refreshed.size());
+            assertTrue(Collections.disjoint(previous, refreshed));
+            previous = refreshed;
+        }
     }
 
     @Test

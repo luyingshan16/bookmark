@@ -1,4 +1,4 @@
--- MySQL 8.0. Select a new, empty Bookmark database before running this file.
+-- MySQL 8.0. Flyway applies this migration to a new Bookmark database.
 -- Technical DATETIME values use UTC. selection_date is a Taipei business date.
 SET NAMES utf8mb4;
 SET SESSION time_zone = '+00:00';

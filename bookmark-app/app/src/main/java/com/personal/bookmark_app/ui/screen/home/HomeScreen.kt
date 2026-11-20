@@ -192,7 +192,10 @@ fun HomeScreen(
 
             PullToRefreshBox(
                 isRefreshing = isRefreshingFolders,
-                onRefresh = folders::refresh,
+                onRefresh = {
+                    folders.refresh()
+                    homeViewModel.refreshLatestBatchJob()
+                },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()

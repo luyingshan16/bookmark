@@ -16,14 +16,62 @@
 | --- | --- |
 | `bookmark-app/` | Android App 與 JVM 單元測試 |
 | `bookmark-backend/` | Spring Boot API 與後端測試 |
-| `bookmark-backend/db/schema.sql` | MySQL 空庫結構與來源平台初始資料 |
+| `bookmark-backend/src/main/resources/db/migration/` | Flyway 遷移 SQL，包含 MySQL 空庫結構與來源平台初始資料 |
 | `.github/workflows/backend-ci.yml` | 後端 GitHub Actions 測試設定 |
+
+## 用 Docker Compose 在本機啟動
+
+在 Windows 開啟 Docker Desktop，等 Linux 引擎就緒後，在專案根目錄用 PowerShell 執行 `docker info --format '{{.OSType}}'`。看到 `linux` 就可以繼續。
+
+1. 若還沒有 `.env`，從範本建立一份並開啟編輯。
+
+   ```powershell
+   if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+   notepad .env
+   ```
+
+   設定 `MYSQL_ROOT_PASSWORD`、`BOOKMARK_DB_USERNAME`（例如 `bookmark`）、`BOOKMARK_DB_PASSWORD` 和 `BOOKMARK_JWT_SECRET`。請為 MySQL root 與應用程式帳號使用不同的密碼。可用下列指令產生 32 位元組的 Base64 JWT 金鑰，再貼進 `.env`。要測試註冊驗證信或密碼重設，填入 `MAIL_USERNAME` 及 Gmail SMTP 應用程式密碼 `MAIL_PASSWORD`。如果只驗證 API 啟動，把這兩個值設為空白即可。
+
+   ```powershell
+   $jwtBytes = New-Object byte[] 32
+   $jwtRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+   $jwtRng.GetBytes($jwtBytes)
+   $jwtRng.Dispose()
+   [Convert]::ToBase64String($jwtBytes)
+   ```
+
+2. 建置並啟動 MySQL 和 API。第一次執行會下載映像與 Gradle 依賴。MySQL 可連線後，API 啟動時會透過 Flyway 執行 [版本化 SQL](bookmark-backend/src/main/resources/db/migration/)。若沿用 Flyway 導入前建立的資料庫，先按照 [既有資料庫的接手步驟](deploy/README.md#既有資料庫首次導入-flyway) 設定基準版本。
+
+   ```powershell
+   docker compose up -d --build
+   docker compose ps
+   docker compose logs -f api
+   ```
+
+   如果原本的 MySQL 帳密已設成 Windows 環境變數，Compose 會優先讀取它們。要使用 `.env` 中的 Docker 資料庫帳密，先在同一個 PowerShell 視窗執行下面兩行，再重新執行 `docker compose up -d --build`。這兩行只影響目前的 PowerShell 視窗。
+
+   ```powershell
+   $env:BOOKMARK_DB_USERNAME = $null
+   $env:BOOKMARK_DB_PASSWORD = $null
+   ```
+
+3. 看到 `Started BookmarkBackendApplication` 後，按 `Ctrl+C` 離開日誌，再確認 API 有回應。未附權杖的請求預期回傳 `401 Unauthorized`。Android Studio 模擬器可用 `http://10.0.2.2:8080/` 連線。
+
+   ```powershell
+   curl.exe -i http://localhost:8080/api/folders
+   ```
+
+   如果 Docker 無法綁定 `8080`，在 `.env` 加上 `BOOKMARK_API_PORT=18080` 並重新執行 `docker compose up -d`。測試網址和 Android 模擬器的 API 網址也改用 `18080`。
+
+用 `docker compose down` 停止服務，MySQL 和頭像的資料卷會保留。`docker compose down -v` 會刪除這兩個資料卷。Flyway 會記錄已執行的遷移，後續啟動只套用尚未執行的版本。
+
+此設定預設把 API 綁在本機的 `127.0.0.1:8080`，MySQL 走 Compose 內部網路。準備公開 API 網域時，請參考 [正式部署與 HTTPS](deploy/README.md)。
 
 ## 本機啟動後端
 
 準備 JDK 17 與 MySQL 8。兩個子專案各自附有 Gradle Wrapper。
 
-1. 在 MySQL 建立並選取空的 `bookmark_db`，執行 [建庫 SQL](bookmark-backend/db/schema.sql)。已有最新版結構的資料庫可直接沿用。若使用其他庫名、主機或連接埠，設定 `DB_URL`。
+1. 在 MySQL 建立空的 `bookmark_db`，並授予應用程式的資料庫帳號建表與遷移所需權限。後端啟動時會套用 Flyway 遷移。若沿用導入 Flyway 前建立的資料庫，先備份並核對結構與 V1 一致，再於首次啟動時設定 `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true`。確認基準版本登記成功後即可移除此環境變數。若使用其他庫名、主機或連接埠，設定 `DB_URL`。
 2. 參照 [`.env.example`](.env.example)，把實際值注入啟動後端的程序。可用同一個 PowerShell 視窗的環境變數，或 IntelliJ Run Configuration 的 **Environment variables**。Spring Boot 不會自動載入 `.env`。
 3. 從專案根目錄啟動後端。預設在本機的 `http://localhost:8080` 提供 API。
 
@@ -82,7 +130,7 @@ APK 與 AAB 為本機建置產物，來源庫不包含可下載的安裝包。�
 
 macOS 或 Linux 使用 `./gradlew`。Android JVM 單元測試不需要啟動模擬器或後端。
 
-後端預設測試使用隔離的 H2 或替身，無須使用 MySQL 與部署機密。`folder_jobs` 測試取用 `db/schema.sql` 的建表定義。另有一項 MySQL UTC 整合測試，必須有專用的隔離資料庫才會啟用，預設會跳過。
+後端預設測試使用隔離的 H2 或替身，無須使用 MySQL 與部署機密。`folder_jobs` 測試取用 Flyway V1 的建表定義。另有一項 MySQL UTC 整合測試，必須有專用的隔離資料庫才會啟用，預設會跳過。
 
 [Backend CI](.github/workflows/backend-ci.yml) 提交至 GitHub 後，當 push 或 PR 變更後端或 workflow 自身時，會在 Ubuntu 上以 JDK 17 執行後端測試。
 

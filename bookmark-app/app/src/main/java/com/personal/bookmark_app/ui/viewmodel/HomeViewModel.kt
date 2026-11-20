@@ -80,15 +80,19 @@ class HomeViewModel @Inject constructor(
         if (batchJobRefresh?.isActive == true) return
         _uiState.update { it.copy(batchJobStatusUnavailable = false) }
         batchJobRefresh = viewModelScope.launch {
+            var trackingBatchJob = false
             try {
                 val sessionId = userPreferencesRepository.sessionTokens()?.sessionId ?: return@launch
                 val response = bookmarkApi.getLatestBatchJob()
                 if (userPreferencesRepository.sessionTokens()?.sessionId != sessionId) return@launch
-                if (!response.isSuccessful) throw HttpException(response)
+                if (!response.isSuccessful) return@launch
                 val latest = response.body()
-                _uiState.update { it.copy(latestBatchJob = latest, batchJobStatusUnavailable = false) }
+                _uiState.update { it.copy(latestBatchJob = latest) }
                 if (latest == null) return@launch
-                if (!latest.finished) BookmarkBatchNotificationService.track(context, latest, sessionId)
+                if (!latest.finished) {
+                    trackingBatchJob = true
+                    BookmarkBatchNotificationService.track(context, latest, sessionId)
+                }
                 val status = batchStatuses.watch(sessionId, latest.id, latest).first { status ->
                     _uiState.update { it.copy(latestBatchJob = status) }
                     status.finished
@@ -103,7 +107,11 @@ class HomeViewModel @Inject constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _uiState.update { it.copy(latestBatchJob = null, batchJobStatusUnavailable = true) }
+                _uiState.update { state ->
+                    if (trackingBatchJob && state.latestBatchJob?.finished == false) {
+                        state.copy(latestBatchJob = null, batchJobStatusUnavailable = true)
+                    } else state
+                }
             }
         }
     }

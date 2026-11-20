@@ -19,8 +19,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-        val apiBaseUrl = providers.gradleProperty("BOOKMARK_API_BASE_URL")
-            .orElse("http://10.72.213.234:8080/").get()
+        val apiBaseUrl = providers.gradleProperty("BOOKMARK_API_BASE_URL").get()
         val googleWebClientId = providers.gradleProperty("GOOGLE_WEB_CLIENT_ID")
             .orElse(providers.environmentVariable("GOOGLE_WEB_CLIENT_ID"))
             .orElse("").get()

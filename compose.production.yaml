@@ -1,0 +1,24 @@
+services:
+  api:
+    environment:
+      BOOKMARK_PUBLIC_BASE_URL: https://${BOOKMARK_API_DOMAIN:?Set BOOKMARK_API_DOMAIN in .env}
+    ports: !reset []
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      BOOKMARK_API_DOMAIN: ${BOOKMARK_API_DOMAIN:?Set BOOKMARK_API_DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

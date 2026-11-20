@@ -36,7 +36,7 @@ class FolderOperationsTransactionTest extends BookmarkTransactionTestSupport {
 
     @BeforeAll
     static void createFolderJobsTable(@Autowired JdbcTemplate jdbc) throws IOException {
-        var schema = new ClassPathResource("db/schema.sql");
+        var schema = new ClassPathResource("db/migration/V1__initial_schema.sql");
         // Hibernate creates the entity tables in H2. The MySQL bootstrap also defines this JDBC-only table.
         var folderJobsDdl = Pattern.compile("(?ms)^CREATE TABLE `folder_jobs` \\(.*?^\\)[^\\r\\n]*;")
                 .matcher(schema.getContentAsString(StandardCharsets.UTF_8));

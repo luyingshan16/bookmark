@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
         "spring.datasource.password=",
         "spring.datasource.hikari.connection-init-sql=SELECT 1",
         "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.flyway.enabled=false",
         "spring.sql.init.mode=never",
         "spring.mail.username=test@example.invalid",
         "spring.mail.password=",

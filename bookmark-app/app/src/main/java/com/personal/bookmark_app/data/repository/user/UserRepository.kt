@@ -1,6 +1,5 @@
 package com.personal.bookmark_app.data.repository.user
 
-import android.net.Uri
 import com.personal.bookmark_app.data.remote.dto.response.user.UserProfileResponse
 
 interface UserRepository {
@@ -8,5 +7,5 @@ interface UserRepository {
 
     suspend fun linkGoogle(idToken: String, password: String): Result<UserProfileResponse>
 
-    suspend fun updateAvatar(imageUri: Uri): Result<UserProfileResponse>
+    suspend fun updateAvatar(image: AvatarImage): Result<UserProfileResponse>
 }

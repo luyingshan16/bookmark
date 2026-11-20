@@ -1,7 +1,6 @@
 package com.personal.bookmark_app.ui.viewmodel
 
 import android.content.Context
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -21,6 +20,7 @@ import com.personal.bookmark_app.data.remote.api.FolderNameRequest
 import com.personal.bookmark_app.data.remote.api.FolderJobStatus
 import com.personal.bookmark_app.data.remote.api.FolderJobRequest
 import com.personal.bookmark_app.data.local.UserPreferencesRepository
+import com.personal.bookmark_app.data.repository.user.AvatarImage
 import com.personal.bookmark_app.data.repository.user.UserRepository
 import com.personal.bookmark_app.data.repository.FolderChanges
 import com.personal.bookmark_app.ui.model.FolderDisplayMode
@@ -123,9 +123,9 @@ class HomeViewModel @Inject constructor(
         return marked
     }
 
-    fun updateAvatar(uri: Uri) {
+    fun updateAvatar(image: AvatarImage) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { userRepository.updateAvatar(uri) }
+            withContext(Dispatchers.IO) { userRepository.updateAvatar(image) }
                 .onSuccess { profile -> _uiState.update { it.copy(updatedProfile = profile) } }
         }
     }

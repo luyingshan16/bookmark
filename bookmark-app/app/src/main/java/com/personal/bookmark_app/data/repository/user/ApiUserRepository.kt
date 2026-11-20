@@ -1,9 +1,6 @@
 package com.personal.bookmark_app.data.repository.user
 
-import android.content.ContentResolver
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import com.personal.bookmark_app.data.remote.api.UserApi
 import com.personal.bookmark_app.data.remote.backendMessage
 import com.personal.bookmark_app.data.remote.dto.request.auth.LinkGoogleRequest
@@ -16,8 +13,7 @@ import retrofit2.HttpException
 import javax.inject.Inject
 
 class ApiUserRepository @Inject constructor(
-    private val api: UserApi,
-    private val contentResolver: ContentResolver
+    private val api: UserApi
 ) : UserRepository {
 
     override suspend fun getProfile(): Result<UserProfileResponse> = runCatching {
@@ -39,46 +35,21 @@ class ApiUserRepository @Inject constructor(
     )
 
     override suspend fun updateAvatar(
-        imageUri: Uri
+        image: AvatarImage
     ): Result<UserProfileResponse> = runCatching {
-        val mimeType = contentResolver.getType(imageUri) ?: "image/jpeg"
-        val extension = when (mimeType.lowercase()) {
-            "image/jpeg", "image/jpg" -> "jpg"
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            else -> error("僅支援 JPG、PNG 或 WebP 圖片")
-        }
-        val imageBytes = contentResolver.openInputStream(imageUri)
-            ?.readAvatarBytes()
-            ?: error("無法讀取所選的圖片")
-
-        val (uploadExtension, uploadType, uploadBytes) = if (extension == "webp") {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
-            require(options.outWidth > 0 && options.outHeight > 0) { "無法讀取所選的圖片" }
-            require(options.outWidth.toLong() * options.outHeight <= 16_000_000) {
-                "頭像不可超過 1600 萬像素"
-            }
-            val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                ?: error("無法讀取所選的圖片")
-            val png = try {
-                LimitedAvatarOutputStream("處理後的圖片不可超過 10 MB").use {
-                    val compressed = bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
-                    it.checkLimit()
-                    check(compressed) { "無法轉換頭像圖片" }
-                    it.toByteArray()
-                }
-            } finally {
-                bitmap.recycle()
-            }
-            Triple("png", "image/png", png)
-        } else {
-            Triple(extension, mimeType, imageBytes)
+        val isJpeg = image.format == Bitmap.CompressFormat.JPEG
+        val extension = if (isJpeg) "jpg" else "png"
+        val mimeType = if (isJpeg) "image/jpeg" else "image/png"
+        val bytes = LimitedAvatarOutputStream("處理後的圖片不可超過 10 MB").use {
+            val compressed = image.bitmap.compress(image.format, 98, it)
+            it.checkLimit()
+            check(compressed) { "無法轉換頭像圖片" }
+            it.toByteArray()
         }
         val imagePart = MultipartBody.Part.createFormData(
             "file",
-            "avatar.$uploadExtension",
-            uploadBytes.toRequestBody(uploadType.toMediaType())
+            "avatar.$extension",
+            bytes.toRequestBody(mimeType.toMediaType())
         )
         api.updateAvatar(imagePart)
     }

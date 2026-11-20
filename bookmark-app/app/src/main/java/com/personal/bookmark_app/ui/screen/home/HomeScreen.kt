@@ -1,6 +1,5 @@
 package com.personal.bookmark_app.ui.screen.home
 
-import android.net.Uri
 import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -84,6 +83,7 @@ import androidx.paging.compose.itemKey
 import com.personal.bookmark_app.BuildConfig
 import com.personal.bookmark_app.data.remote.dto.response.user.UserProfileResponse
 import com.personal.bookmark_app.data.remote.resolveAvatarUrl
+import com.personal.bookmark_app.data.repository.user.AvatarImage
 import com.personal.bookmark_app.ui.components.LinkGoogleDialog
 import com.personal.bookmark_app.ui.components.BottomOverscroll
 import com.personal.bookmark_app.ui.components.bookmark.BookmarkBatchIndicator
@@ -102,7 +102,6 @@ fun HomeScreen(
     onAddBookmarkClick: () -> Unit = {},
     onDailyPicksClick: () -> Unit = {},
     onFolderClick: (FolderUiModel) -> Unit = {},
-    onAvatarSelected: (Uri) -> Unit = {},
     onLogoutClick: () -> Unit = {},
     homeViewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -173,10 +172,7 @@ fun HomeScreen(
                 onAddBookmarkClick = onAddBookmarkClick,
                 profile = uiState.updatedProfile ?: initialProfile,
                 onLinkGoogle = homeViewModel::linkGoogle,
-                onAvatarSelected = { uri ->
-                    homeViewModel.updateAvatar(uri)
-                    onAvatarSelected(uri)
-                },
+                onAvatarSelected = homeViewModel::updateAvatar,
                 onLogoutClick = onLogoutClick
             )
         }
@@ -292,7 +288,7 @@ private fun HomeTopAppBar(
     onAddBookmarkClick: () -> Unit,
     profile: UserProfileResponse,
     onLinkGoogle: suspend (String, String) -> Result<Unit>,
-    onAvatarSelected: (Uri) -> Unit,
+    onAvatarSelected: (AvatarImage) -> Unit,
     onLogoutClick: () -> Unit
 ) {
     var showProfileDialog by rememberSaveable {
@@ -403,8 +399,8 @@ private fun HomeTopAppBar(
             onDismiss = {
                 showProfileDialog = false
             },
-            onComplete = { uri ->
-                uri?.let(onAvatarSelected)
+            onComplete = { avatar ->
+                avatar?.let(onAvatarSelected)
                 showProfileDialog = false
             },
             onLinkGoogleClick = {

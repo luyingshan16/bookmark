@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,37 +49,49 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.personal.bookmark_app.data.repository.user.AvatarImage
 import com.skydoves.landscapist.ImageOptions
 import com.skydoves.landscapist.coil3.CoilImage
 
 @Composable
 fun PersonalProfileDialog(
     email: String,
-    avatarImageUrl: Any?,
+    avatarImageUrl: String?,
     googleLinked: Boolean,
     onDismiss: () -> Unit,
-    onComplete: (Uri?) -> Unit,
+    onComplete: (AvatarImage?) -> Unit,
     onLinkGoogleClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
-    var pendingAvatarUri by remember {
-        mutableStateOf<Uri?>(null)
-    }
+    var pendingAvatar by remember { mutableStateOf<AvatarImage?>(null) }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // 開啟手機相簿
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        uri?.let {
-            pendingAvatarUri = it
-        }
+        selectedImageUri = uri
     }
 
-    val displayedAvatar = pendingAvatarUri ?: avatarImageUrl
+    val cropUri = selectedImageUri
+    if (cropUri != null) {
+        AvatarCropDialog(
+            uri = cropUri,
+            onDismiss = { selectedImageUri = null },
+            onConfirm = {
+                pendingAvatar = it
+                selectedImageUri = null
+            }
+        )
+        return
+    }
+
+    val avatarPreview = remember(pendingAvatar) { pendingAvatar?.bitmap?.asImageBitmap() }
 
     Dialog(
         onDismissRequest = onDismiss
@@ -161,9 +174,16 @@ fun PersonalProfileDialog(
                             modifier = Modifier.size(44.dp)
                         )
 
-                        if (displayedAvatar?.toString()?.isNotBlank() == true) {
+                        if (avatarPreview != null) {
+                            Image(
+                                bitmap = avatarPreview,
+                                contentDescription = "裁切後的頭像",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (!avatarImageUrl.isNullOrBlank()) {
                             CoilImage(
-                                imageModel = { displayedAvatar },
+                                imageModel = { avatarImageUrl },
                                 imageOptions = ImageOptions(
                                     contentScale = ContentScale.Crop
                                 ),
@@ -288,7 +308,7 @@ fun PersonalProfileDialog(
                             )
 
                             Text(
-                                text = "支援 JPG、PNG 格式",
+                                text = "支援 JPG、PNG、WebP 格式",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -420,7 +440,7 @@ fun PersonalProfileDialog(
                 // --------------------------------
 
                 Button(
-                    onClick = { onComplete(pendingAvatarUri) },
+                    onClick = { onComplete(pendingAvatar) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 25.dp),

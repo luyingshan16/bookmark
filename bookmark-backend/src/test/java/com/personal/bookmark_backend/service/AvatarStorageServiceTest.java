@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 
 import javax.imageio.ImageIO;
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
@@ -38,10 +39,42 @@ class AvatarStorageServiceTest {
         String name = service.store(upload);
         assertTrue(name.endsWith(".png"));
         assertTrue(Files.size(directory.resolve(name)) < source.size());
-        assertEquals(16, ImageIO.read(directory.resolve(name).toFile()).getWidth());
+        var stored = ImageIO.read(directory.resolve(name).toFile());
+        assertEquals(12, stored.getWidth());
+        assertEquals(12, stored.getHeight());
+        assertEquals(0, stored.getRGB(6, 6) >>> 24);
 
         service.deletePrevious("https://example.com/uploads/avatars/" + name);
         assertFalse(Files.exists(directory.resolve(name)));
+    }
+
+    @Test
+    void cropsAndDownsizesLargeJpegAvatars() throws Exception {
+        var service = new AvatarStorageService(directory.toString(), "https://avatar.example.org");
+        var image = new BufferedImage(1600, 800, BufferedImage.TYPE_INT_RGB);
+        var graphics = image.createGraphics();
+        try {
+            graphics.setColor(Color.RED);
+            graphics.fillRect(0, 0, 1600, 800);
+            graphics.setColor(Color.BLUE);
+            graphics.fillRect(400, 0, 800, 800);
+        } finally {
+            graphics.dispose();
+        }
+        var source = new ByteArrayOutputStream();
+        assertTrue(ImageIO.write(image, "jpeg", source));
+        var upload = new MockMultipartFile("file", "avatar.jpg", "image/jpeg", source.toByteArray());
+
+        String name = service.store(upload);
+
+        assertTrue(name.endsWith(".jpg"));
+        var path = directory.resolve(name);
+        assertTrue(Files.size(path) < source.size());
+        var stored = ImageIO.read(path.toFile());
+        assertEquals(512, stored.getWidth());
+        assertEquals(512, stored.getHeight());
+        assertTrue(new Color(stored.getRGB(8, 256)).getBlue() > 240);
+        assertTrue(new Color(stored.getRGB(503, 256)).getBlue() > 240);
     }
 
     @Test
